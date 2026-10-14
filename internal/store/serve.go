@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -41,6 +42,11 @@ func Page() (string, error) {
 		}
 		html = strings.Replace(html, `<script src="`+name+`"></script>`, "<script>\n"+js+"</script>", 1)
 	}
+	logo, err := webFS.ReadFile("web/logo.png")
+	if err != nil {
+		return "", err
+	}
+	html = strings.Replace(html, `src="logo.png"`, `src="data:image/png;base64,`+base64.StdEncoding.EncodeToString(logo)+`"`, 1)
 	return html, nil
 }
 

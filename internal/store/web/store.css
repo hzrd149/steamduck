@@ -35,7 +35,7 @@ header {
   background: linear-gradient(#141c25, var(--bg));
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; }
-.duck { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); box-shadow: 8px 0 0 -5px #ff8a1f; }
+.logo { width: 36px; height: 36px; border-radius: 9px; }
 .tabs { display: flex; align-items: center; gap: 6px; margin: 0 auto; }
 .tab {
   background: none; border: 0; padding: 8px 18px; border-radius: 999px;
