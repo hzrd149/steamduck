@@ -1,0 +1,200 @@
+<!-- Existing feature markup; controllers still live in account.js, settings.ts and store.js. -->
+  <section id="account" class="view" hidden>
+    <div id="acct-loading" class="acct-loading muted">Loading your account…</div>
+
+    <div id="acct-profile" class="profile" hidden>
+      <div class="profile-banner" id="p-banner" aria-hidden="true"></div>
+      <div class="profile-body">
+        <span class="avatar" id="p-avatar" aria-hidden="true"></span>
+        <div class="profile-head">
+          <h1 id="p-name">Your account</h1>
+          <div class="muted" id="p-handle"></div>
+        </div>
+        <button id="signout" class="secondary">Sign out</button>
+      </div>
+      <p class="profile-about" id="p-about"></p>
+      <dl class="profile-facts" id="p-facts"></dl>
+      <p class="muted small" id="p-note" hidden></p>
+      <div class="actions profile-actions">
+        <button id="profile-edit" class="primary" hidden>Edit profile</button>
+        <button id="profile-refresh" class="secondary">Refresh profile</button>
+        <button id="profile-copy" class="secondary">Copy account ID</button>
+        <button id="profile-open" class="secondary" hidden>Open profile app</button>
+      </div>
+    </div>
+
+    <div id="account-social" class="panel" hidden>
+      <h2>Your Nostr account</h2>
+      <div class="segmented social-tabs" id="social-tabs" aria-label="Account information">
+        <button data-section="follows">Following</button>
+        <button data-section="relays">Relays</button>
+        <button data-section="badges">Badges</button>
+        <button data-section="zaps">Received zaps</button>
+        <button data-section="lists">Public lists</button>
+        <button data-section="mutes">Muted</button>
+        <button data-section="blocked">Blocked</button>
+      </div>
+      <p id="social-status" class="muted small" role="status"></p>
+      <div id="social-content"></div>
+    </div>
+
+    <div id="acct-offline" class="panel" hidden>
+      <h2>Can't reach your account</h2>
+      <p class="muted">You're signed in, but the app that holds your key isn't answering. Steamduck keeps trying in the background. Open it on your phone or computer, or sign out and sign in another way.</p>
+      <div class="actions"><button id="signout-offline" class="secondary">Sign out</button></div>
+    </div>
+
+    <div id="acct-signin" class="signin" hidden>
+      <div class="signin-intro">
+        <h1>Sign in</h1>
+        <p class="muted">Your account lets games post scores, chat and save progress across devices. Each game still asks before it does anything with it.</p>
+      </div>
+      <div class="signin-options">
+        <button class="option" data-flow="phone">
+          <span class="option-icon" aria-hidden="true">📱</span>
+          <span class="option-title">Sign in with your phone</span>
+          <span class="option-sub muted">Scan a code with your signer app</span>
+        </button>
+        <button class="option" data-flow="link">
+          <span class="option-icon" aria-hidden="true">🔗</span>
+          <span class="option-title">Use a login link</span>
+          <span class="option-sub muted">Paste a bunker link from your signer</span>
+        </button>
+        <button class="option" data-flow="system">
+          <span class="option-icon" aria-hidden="true">💻</span>
+          <span class="option-title">Use this device's signer</span>
+          <span class="option-sub muted">A signer app already running here</span>
+        </button>
+        <button class="option" data-flow="key">
+          <span class="option-icon" aria-hidden="true">🔑</span>
+          <span class="option-title">Enter a private key</span>
+          <span class="option-sub muted">Stored on this device</span>
+        </button>
+      </div>
+    </div>
+
+  </section>
+
+  <section id="settings" class="view" hidden aria-labelledby="settings-title">
+    <div class="toolbar settings-toolbar">
+      <h1 id="settings-title">Kwakore settings</h1>
+      <button id="settings-refresh" class="secondary">Refresh settings</button>
+      <button id="settings-reload" class="secondary" hidden>Reload configuration</button>
+    </div>
+    <p class="muted settings-intro">Choose where Kwakore finds napplets and their files, and how it integrates with your device. Changes save automatically on this device.</p>
+    <p id="settings-status" class="muted" role="status"></p>
+    <div id="settings-fields"></div>
+    <div class="panel settings-account">
+      <h2>Nostr account</h2>
+      <p class="muted">Manage your signer, sign-in and public profile on the Account page.</p>
+      <button id="settings-account" class="secondary">Manage account</button>
+    </div>
+  </section>
+
+  <section id="napplet" class="napplet" hidden aria-labelledby="d-name">
+    <div class="hero">
+      <div class="hero-bg" id="d-bg" aria-hidden="true"></div>
+      <button id="d-back" class="back" aria-label="Back"><span aria-hidden="true">‹</span> Back</button>
+      <div class="hero-body">
+        <span id="d-icon" class="icon big" aria-hidden="true"></span>
+        <div class="hero-info">
+          <h1 id="d-name">Napplet</h1>
+          <div id="d-author" class="muted"></div>
+          <div id="d-tags" class="tags"></div>
+        </div>
+      </div>
+      <div class="hero-bar">
+        <div class="actions" id="d-actions"></div>
+        <div class="votes" id="d-votes">
+          <button data-vote="up" aria-pressed="false" title="Recommend"><span aria-hidden="true">👍</span> <span class="n">0</span></button>
+          <button data-vote="down" aria-pressed="false" title="Not recommended"><span aria-hidden="true">👎</span> <span class="n">0</span></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="page-tabs" role="tablist" aria-label="Napplet details">
+      <span class="hint" aria-hidden="true">L1</span>
+      <button class="ptab" data-ptab="overview" role="tab">Overview</button>
+      <button class="ptab" data-ptab="comments" role="tab">Comments <span class="count" id="n-comments"></span></button>
+      <button class="ptab" data-ptab="mentions" role="tab">Mentions <span class="count" id="n-mentions"></span></button>
+      <button class="ptab" data-ptab="zaps" role="tab">Zaps <span class="count" id="n-zaps"></span></button>
+      <button class="ptab" data-ptab="permissions" role="tab">Permissions</button>
+      <span class="hint" aria-hidden="true">R1</span>
+      <span class="sync muted small" id="d-sync"></span>
+    </div>
+
+    <div class="ppanel overview" id="pt-overview">
+      <div>
+        <p id="d-desc" class="desc"></p>
+        <h3>Reactions</h3>
+        <div class="emoji" id="d-emoji"></div>
+        <div class="emoji pick" id="d-react"></div>
+        <h3>Share</h3>
+        <form id="share-form" class="composer">
+          <textarea id="share-text" rows="2" placeholder="Say something about it (optional)"></textarea>
+          <div class="actions"><button type="submit" class="secondary" id="share-submit">Share</button></div>
+        </form>
+      </div>
+      <div class="side">
+        <dl id="d-meta" class="meta"></dl>
+        <p id="d-unsupported" class="muted small" hidden>This one can't be installed on Steamduck yet.</p>
+        <button id="d-copy" class="secondary">Copy address</button>
+      </div>
+    </div>
+
+    <div class="ppanel" id="pt-comments" hidden>
+      <form id="comment-form" class="composer">
+        <div class="replying" id="replying" hidden>Replying to <b id="replying-to"></b> <button type="button" class="link" id="reply-cancel">Cancel</button></div>
+        <textarea id="comment-text" rows="3" placeholder="Write a comment"></textarea>
+        <div class="actions"><button type="submit" class="primary" id="comment-submit">Post</button></div>
+      </form>
+      <div class="feed" id="comment-list"></div>
+      <p class="empty" id="comment-empty" hidden>No comments yet.</p>
+      <button class="secondary more" id="comment-more" hidden>Load more</button>
+    </div>
+
+    <div class="ppanel" id="pt-mentions" hidden>
+      <div class="feed" id="mention-list"></div>
+      <p class="empty" id="mention-empty" hidden>Nobody has mentioned it yet.</p>
+      <button class="secondary more" id="mention-more" hidden>Load more</button>
+    </div>
+
+    <div class="ppanel" id="pt-zaps" hidden>
+      <div class="panel zap-panel">
+        <div class="zap-total"><span id="zap-total">0</span> sats from <span id="zap-count">0</span> zaps</div>
+        <p class="muted small" id="zap-note">Zap the author with sats. Pay the invoice with a Lightning wallet on your phone.</p>
+        <div class="segmented" id="zap-amounts">
+          <button data-sats="21">21</button>
+          <button data-sats="100">100</button>
+          <button data-sats="500">500</button>
+          <button data-sats="1000">1k</button>
+          <button data-sats="5000">5k</button>
+        </div>
+        <input id="zap-comment" placeholder="Message (optional)" autocomplete="off">
+        <div class="actions"><button class="primary" id="zap-submit">Zap</button></div>
+        <div id="zap-invoice" class="subpanel" hidden>
+          <img id="zap-qr" class="qr" alt="Lightning invoice QR code">
+          <div>
+            <h3>Scan to pay <span id="zap-amount"></span> sats</h3>
+            <p class="muted">Open a Lightning wallet on your phone and scan this code. The zap shows up here once it is paid.</p>
+            <p class="mono muted small" id="zap-bolt11"></p>
+            <div class="actions"><button class="secondary" id="zap-done">Done</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="feed" id="zap-list"></div>
+      <button class="secondary more" id="zap-more" hidden>Load more</button>
+    </div>
+
+    <div class="ppanel" id="pt-permissions" hidden>
+      <p class="muted" id="perm-intro">Answers this napplet saved when it asked. Forget one and it asks again next time.</p>
+      <div id="d-perm-list"></div>
+      <p class="empty" id="perm-empty" hidden>No saved answers.</p>
+    </div>
+  </section>
+<div id="account-modal" class="modal" hidden role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="m-title">
+  <div class="modal-card">
+    <h2 id="m-title">Account</h2>
+    <div id="m-body"></div>
+  </div>
+</div>

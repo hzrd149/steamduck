@@ -274,7 +274,7 @@ async function snapshot(): Promise<{ settings: Settings; sources: Record<string,
       return { settings: result.settings, sources: result.sources || {} };
     } catch (error) {
       if ((error as {code?: number}).code !== -32601) throw error;
-      // The legacy adapter can run against an older daemon.
+      // Capability inspection may be unavailable on an older daemon.
       methods = methods.filter((method) => !["settings.inspect", "settings.clear", "settings.reload"].includes(method));
     }
   }

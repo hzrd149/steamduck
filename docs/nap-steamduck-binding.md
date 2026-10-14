@@ -19,10 +19,10 @@ does this and verifies advertised convenience methods. The binding does not gate
 ## Build and injection
 
 ```sh
-npm run build:binding
+npm --prefix internal/store/web run build:binding
 ```
 
-This creates `dist/store-binding/steamduck.js` and refreshes the identical,
+This creates `internal/store/web/dist/binding/steamduck.js` and refreshes the identical,
 checked-in `internal/store/built/steamduck.js`. The full `npm run build` includes
 this step. The Go binary embeds it and exposes it as `store.SteamduckPrelude()`.
 
@@ -101,7 +101,8 @@ without returning raw internal errors.
 builtin broker. The host dispatches validated convenience requests and direct
 control calls on separate authenticated connections, without mutation retries.
 Only the approved built-in gets this extension. Games launch as ordinary napplets.
-The compatibility window remains available with `--legacy-window`.
+The store has only the trusted napplet window; no standalone compatibility
+binding or HTTP transport is installed.
 
 Custom route deadlines allow 180 seconds, and the private helper allows 185
 seconds. Custom responses remain capped at 262,144 bytes. Icons and profile images
@@ -117,9 +118,9 @@ normal fetch permission, network policy, MIME checks and resource byte limits.
 ## Verification
 
 ```sh
-npm run typecheck
-npm run build
-npm test
+npm --prefix internal/store/web run typecheck
+npm --prefix internal/store/web run build
+npm --prefix internal/store/web test
 go vet ./...
 go test ./...
 ```

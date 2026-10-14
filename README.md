@@ -38,7 +38,7 @@ shortcuts.vdf ◀── steamduck-sync.service ◀── napplet.installed / uni
 steamduck install [--kwakore-version TAG | --kwakore-archive FILE] [--kwakore-installer FILE] [--skip-kwakore]
 steamduck doctor            # check libraries, services, display, Steam
 steamduck store             # the store window (Steam runs: steamduck store)
-steamduck store --serve 127.0.0.1:8080   # the same UI in a browser, for development
+steamduck store --debug     # enable the trusted napplet's webview inspector
 steamduck launch --napplet ADDRESS [--appid ID] [--try]
 steamduck sync [--watch] [--force] [--json]
 steamduck shortcuts         # wanted shortcuts as JSON (for a Decky plugin)
@@ -70,7 +70,7 @@ environment on x86_64/aarch64 Linux or Apple Silicon macOS:
 
 ```sh
 nix develop
-npm ci
+npm --prefix internal/store/web ci
 just build
 just store              # rebuild and open the native store
 just test
@@ -90,8 +90,8 @@ frontend and Go binary, then opens the trusted store napplet. Use
 only compile frontend artifacts. Native launch requires a separately installed,
 compatible Kwakore daemon and runtime (including `kwaklet` and `libwebview.so`).
 It does not silently fall back to compatibility mode when the daemon is too old.
-Browser development uses `just dev-store` with a running Kwakore daemon.
-Browser tests additionally need Playwright's Chromium and its
+There is no standalone/HTTP store fallback. Browser tests use injected mock NAP
+domains and additionally need Playwright's Chromium and its
 host libraries; see [the store build guide](docs/store-napplet.md#verification).
 
 To intentionally update the pinned tools, run `nix flake update` and commit
@@ -102,18 +102,20 @@ the resulting `flake.lock`.
 Install Go 1.26 or newer and Node.js 22.12 or newer (CI uses Node.js 24), then:
 
 ```sh
-npm ci
-npm run build                         # rebuild the embedded store artifacts
+npm --prefix internal/store/web ci
+npm --prefix internal/store/web run build  # rebuild the embedded store artifacts
 go test ./...
 go build -o steamduck ./cmd/steamduck
-./steamduck store --serve 127.0.0.1:8080   # open the printed URL
+./steamduck store                         # open the trusted store napplet
 ```
 
-The store window uses the `libwebview.so` from the kwakore release, through purego, so building needs no cgo.
+The store uses Kwakore's `kwaklet` window program and `libwebview.so`; the Go
+broker no longer owns a standalone webview, so building needs no cgo.
 
 The store frontend uses Svelte 5, Vite and `@napplet/vite-plugin` to build a
 single HTML napplet. The default store window uses the trusted built-in runtime
-path with NAP-STEAMDUCK, optional NAP-GAMEPAD and NAP-THEME. The explicit legacy
-window and browser development server use a separate compatibility build.
+path with NAP-STEAMDUCK, optional NAP-GAMEPAD and NAP-THEME. Frontend source,
+configuration, dependencies and tests live in `internal/store/web`; Vite writes
+its single-file output to `internal/store/web/dist`.
 See [the store build guide](docs/store-napplet.md) for artifacts, live
 development and sandbox tests.

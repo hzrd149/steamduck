@@ -113,7 +113,7 @@ its socket framing or streaming mechanisms part of NAP-STEAMDUCK.
 ### Store convenience operations
 
 These preserve the existing store backend's behavior. Their names intentionally
-match the current `steamduckCall` method table. They are a separate namespace
+match the former `steamduckCall` method table (that binding has been removed). They are a separate namespace
 from `kwakore.call`. Large catalog, installed and social lists use daemon page
 schemas (`items`, `total`, `next_offset`); callers follow a non-null continuation.
 

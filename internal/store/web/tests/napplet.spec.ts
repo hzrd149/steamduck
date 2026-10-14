@@ -1,8 +1,7 @@
 import { expect, test, type Page, type FrameLocator } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-const napplet = readFileSync(new URL("../../internal/store/built/napplet.html", import.meta.url), "utf8");
-const legacy = readFileSync(new URL("../../internal/store/built/legacy.html", import.meta.url), "utf8");
+const napplet = readFileSync(new URL("../../built/napplet.html", import.meta.url), "utf8");
 const methods = ["status", "installed", "discover", "icon", "launch", "sync", "signer.status", "settings.get",
   "profile.get", "napplet.social", "settings.set", "settings.inspect", "settings.clear", "settings.reload", "signer.switch"];
 const item = {
@@ -103,7 +102,7 @@ test("keyed catalog refresh keeps the focused card mounted", async ({ page }) =>
   expect(errors).toEqual([]);
 });
 
-async function openStore(page: Page, options: { missingUUID?: boolean; missing?: boolean; version?: number; legacy?: boolean; identity?: boolean; icons?: boolean; paginated?: boolean; denyImages?: boolean } = {}) {
+async function openStore(page: Page, options: { missingUUID?: boolean; missing?: boolean; version?: number; identity?: boolean; icons?: boolean; paginated?: boolean; denyImages?: boolean } = {}) {
   const errors: string[] = [];
   const requests: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -123,7 +122,7 @@ async function openStore(page: Page, options: { missingUUID?: boolean; missing?:
     window.testState = { available: true, focused: true, pads: [] };
     window.testErrors = {};
     window.testInfoCalls = 0;
-    navigator.getGamepads = () => { ${options.legacy ? "return [];" : 'throw new Error("Native gamepad API polled");'} };
+    navigator.getGamepads = () => { throw new Error("Native gamepad API polled"); };
     const execute = async (method, params) => {
       window.testCalls.push({method, params});
       if (window.testErrors[method]) throw window.testErrors[method];
@@ -158,8 +157,7 @@ async function openStore(page: Page, options: { missingUUID?: boolean; missing?:
       }
       return null;
     };
-    ${options.legacy ? `window.steamduckCall = async (method, params) => ({ result: await execute(method, params) });` :
-      options.missing ? "" : `window.napplet = {
+    ${options.missing ? "" : `window.napplet = {
         steamduck: {
           async info() { window.testInfoCalls++; return {version: ${options.version ?? 1}, methods: ${JSON.stringify(methods)}, kwakore_protocol_version: 1}; },
           call: execute,
@@ -212,7 +210,7 @@ async function openStore(page: Page, options: { missingUUID?: boolean; missing?:
         },
       };`}
   `;
-  const document = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'"><script>${prelude}</script>${options.legacy ? legacy : napplet}`;
+  const document = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'"><script>${prelude}</script>${napplet}`;
   await page.setContent('<iframe title="Store" sandbox="allow-scripts" style="border:0;width:1280px;height:800px"></iframe>');
   await page.locator("iframe").evaluate((frame, html) => { (frame as HTMLIFrameElement).srcdoc = html; }, document);
   const frame = page.frameLocator("iframe");
@@ -287,34 +285,6 @@ test("public backend errors retain their store-facing explanation", async ({ pag
   });
   await frame.locator("#sync").click();
   await expect(frame.locator("#toast")).toHaveText("This needs you to be signed in. Sign in on the Account tab.");
-});
-
-test("the separate compatibility build still uses the existing native backend", async ({ page }) => {
-  const { frame } = await openStore(page, { legacy: true });
-  await expect(frame.locator("#library-grid .card")).toHaveCount(1);
-  await frame.locator("#sync").click();
-  await expect(frame.locator("#toast")).toContainText("Steam is running");
-});
-
-test("the compatibility browser transport preserves the loopback token check", async ({ page }) => {
-  const requests: Array<{ method: string; token: string | undefined }> = [];
-  await page.route("http://store.test/**", async (route) => {
-    const request = route.request();
-    if (request.method() === "GET") {
-      return route.fulfill({ contentType: "text/html", body: legacy,
-        headers: { "Content-Security-Policy": "default-src 'self' 'unsafe-inline' data:" } });
-    }
-    const method = new URL(request.url()).pathname.slice("/api/".length);
-    requests.push({ method, token: request.headers()["x-steamduck-token"] });
-    const result = method === "installed" ? {items:[item], total:1, next_offset:null} : method === "icon" ? "" :
-      method === "status" ? { health: { ready: true, version: "loopback" } } : null;
-    return route.fulfill({ json: { result } });
-  });
-  await page.goto("http://store.test/#token=development-token");
-  await expect(page.locator("#library-grid .card")).toHaveCount(1);
-  await expect(page.locator("#status-text")).toHaveText("kwakore loopback");
-  expect(requests.map((request) => request.method)).toEqual(expect.arrayContaining(["status", "installed"]));
-  expect(requests.every((request) => request.token === "development-token")).toBe(true);
 });
 
 
@@ -547,8 +517,8 @@ test("reset clears an override and displays the configured value", async ({ page
   await expect(card.locator(".setting-source")).toHaveText("From your configuration");
 });
 
-test("empty lists, disabled toggles and disabled sync auto-save in the compatibility build", async ({ page }) => {
-  const {frame} = await openStore(page, {legacy: true});
+test("empty lists, disabled toggles and disabled sync auto-save through the host API", async ({ page }) => {
+  const {frame} = await openStore(page);
   await frame.locator('.tab[data-tab="settings"]').click();
   const relays = frame.locator('[data-field="relays"]');
   await relays.getByRole("button", {name: "Remove wss://relay.example", exact: true}).click();

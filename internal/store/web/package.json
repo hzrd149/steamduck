@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --mode legacy",
-    "build": "vite build && vite build --mode legacy && npm run build:binding && node scripts/verify-store-build.mjs",
+    "dev": "vite",
+    "build": "vite build && npm run build:binding && node scripts/verify-store-build.mjs",
     "build:binding": "vite build --config vite.binding.config.ts && node scripts/verify-store-binding.mjs",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json && tsc --noEmit",
     "test": "playwright test",

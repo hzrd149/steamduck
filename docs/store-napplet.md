@@ -2,13 +2,15 @@
 
 The store frontend lives in `internal/store/web`. Svelte 5 owns the application
 shell, startup state, theme subscription, notifications, and keyed Library and
-Discover cards. `main.ts` only installs the development compatibility adapter
-when requested and mounts `App.svelte`. Reusable UI components live in
-`components/`, views in `views/`, and shared presentation state in `ui.ts`.
+Discover cards. `src/main.ts` only mounts `src/App.svelte`. Reusable UI components
+live in `src/components/`, views in `src/views/`, and shared presentation state
+in `src/ui.ts`. Package/lock files, Vite, TypeScript, and Playwright configuration,
+build scripts, and browser tests all live in this app directory.
 
 Migration is incremental: account, settings, and napplet details currently remain
-imperative feature islands in the `index.html` template, moved into the shell
-on mount. `store.js` still coordinates their operations and controller focus.
+imperative feature controllers with markup compiled by `src/views/FeatureScreens.svelte`.
+`index.html` is only the Vite entry document; it has no screen template or DOM
+transplanting. `src/store.js` still coordinates feature operations and controller focus.
 These are not yet a complete Svelte rewrite. New UI should use Svelte components,
 component-local styles/state, and the existing host API boundary rather than
 adding more DOM rendering helpers.
@@ -24,20 +26,19 @@ See the [official plugin documentation](https://napplet.run/docs/packages/vite-p
 Use Node.js 22.12 or newer (CI uses Node 24):
 
 ```sh
+cd internal/store/web
 npm ci
 npm run build
 ```
 
 | File | Purpose |
 | --- | --- |
-| `dist/store/index.html` | Production single-file napplet. |
-| `dist/store/.nip5a-manifest.json` | Unsigned publishing metadata and artifact hash. |
-| `dist/store-legacy/index.html` | Compatibility build for the existing standalone window and loopback development server. |
+| `internal/store/web/dist/index.html` | Production single-file napplet. |
+| `internal/store/web/dist/.nip5a-manifest.json` | Unsigned publishing metadata and artifact hash. |
 | `internal/store/built/napplet.html` | Checked-in production artifact, embedded by Go and exposed through `store.NappletPage()`. |
-| `internal/store/built/legacy.html` | Checked-in compatibility artifact, returned by the current `store.Page()`. |
 | `internal/store/built/steamduck.js` | Runtime-injected NAP-STEAMDUCK prelude, returned by `store.SteamduckPrelude()`. |
 
-`scripts/verify-store-build.mjs` verifies the artifact hashes, declared domains,
+`internal/store/web/scripts/verify-store-build.mjs` verifies the artifact hashes, declared domains,
 absence of external runtime assets and absence of compatibility transport in
 the production napplet before refreshing the Go-embedded files. Commit those
 files together with frontend source changes. Direct Go builds use the checked-in
@@ -47,7 +48,7 @@ artifacts; `just build`, `just deck` and CI rebuild them first.
 
 ```sh
 nix develop
-npm ci
+npm --prefix internal/store/web ci
 just store                 # rebuild frontend + Go, then open the actual napplet
 just store --debug         # also enable the native webview inspector
 just build-store           # frontend artifacts only; does not open a window
@@ -66,9 +67,9 @@ local runtime bundle (`kwakore`, `kwaklet`, `libwebview.so`), but changing the
 window bundle alone does not update the running daemon. `steamduck doctor`
 helps diagnose runtime, service and display dependencies.
 
-For explicit compatibility testing, use `just store --legacy-window` or the
-loopback browser server `just dev-store`. Neither substitutes for production
-NAP-GAMEPAD integration testing. With a controller attached, verify directional
+The legacy build, `--legacy-window`, `--serve`, and `just dev-store` have been
+removed. There is one store napplet, using host-injected APIs only. With a
+controller attached, verify directional
 focus movement, A activation, B back/modal dismissal, L1/R1 tab cycling, and
 that focus loss pauses input and requires held buttons to be released on return.
 
@@ -128,32 +129,13 @@ Installed lists are paginated, and custom response envelopes stay within 256 KiB
 The original [Kwakore handoff](kwakore-custom-nap-handoff.md) is proposal history;
 the new runtime's native-built-in documentation defines its implemented contract.
 
-## Compatibility and live development
+## Frontend development
 
-`steamduck store` opens the trusted built-in napplet.
-`steamduck store --legacy-window` uses the compatibility build.
-Its adapter maps the existing Go binding or token-protected loopback HTTP calls
-to the same frontend interface. It is compiled out of the production napplet.
-Browser-native gamepad polling is retained only in this compatibility build;
-it does not resolve the standalone WebKit controller issue.
-
-For the existing browser development path:
-
-```sh
-go run ./cmd/steamduck store --serve 127.0.0.1:8080
-```
-
-Open the URL it prints, including its random token. For Vite live reload, leave
-that backend running and start this in a second terminal:
-
-```sh
-npm run dev
-```
-
-Open Vite's loopback URL with the same `#token=…` fragment from the backend URL.
-Vite proxies `/api` to `127.0.0.1:8080`; requests retain the backend's token check.
-The compatibility adapter is available only in the legacy build/development mode.
-It never replaces a real injected NAP-STEAMDUCK domain.
+Use `just store` to rebuild and exercise the real napplet and its controller
+integration. `npm run dev` from `internal/store/web` starts Vite, but a plain
+browser has no injected host capabilities and intentionally displays “Store
+unavailable.” It is not a live Kwakore backend or controller fallback. Browser
+tests provide isolated mock NAP domains rather than another application build.
 
 ## Kwakore settings page
 
@@ -162,7 +144,7 @@ The Settings tab edits `relays`, `blossom_servers`, `discover_on_user_relays`,
 Steamduck installation configures it off when no explicit configuration exists,
 while preserving existing configuration and daemon overrides. Signer credentials and account
 management remain on the Account tab. The page works through NAP-STEAMDUCK in
-the native runtime and through the existing compatibility transport.
+the native runtime.
 
 Settings save automatically: toggles and list changes save immediately, and
 text fields save after a 500 ms typing pause. Requests run sequentially and
@@ -188,8 +170,10 @@ preferences; editing discovery relays does not publish a Nostr relay-list event.
 ## Verification
 
 ```sh
+cd internal/store/web
 npx playwright install chromium
 npm run check
+cd ../../..
 go vet ./...
 go test ./...
 ```
@@ -197,7 +181,7 @@ go test ./...
 Browser tests load the production artifact inside an opaque `allow-scripts`
 iframe with restricted CSP and injected test domains. They cover store/account
 calls, theme integration, missing/incompatible APIs, public errors, controller
-focus isolation and the separate compatibility artifact. Account tests cover
+focus isolation and the single production artifact. Account tests cover
 identity-driven refresh, late results after switching accounts, mediated images,
 public social data, profile intents, metadata preservation and denied signing. They also reject
 unexpected network requests and native gamepad polling from the napplet.

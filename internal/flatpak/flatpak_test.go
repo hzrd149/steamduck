@@ -37,30 +37,6 @@ func TestWindowArgs(t *testing.T) {
 	}
 }
 
-func TestStoreArgs(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
-	args := StoreArgs("rt//1", "/home/deck/.local/lib/steamduck/steamduck", "/rel", "/run/user/1000/kwakore/daemon.sock", []string{"--debug"})
-	for _, a := range []string{
-		"--command=/home/deck/.local/lib/steamduck/steamduck",
-		"--filesystem=xdg-run/kwakore",
-		"--talk-name=org.freedesktop.Flatpak",
-		"--env=STEAMDUCK_IN_FLATPAK=1",
-		"--env=STEAMDUCK_KWAKORE_SOCKET=/run/user/1000/kwakore/daemon.sock",
-	} {
-		if !slices.Contains(args, a) {
-			t.Errorf("missing %q in %q", a, args)
-		}
-	}
-	tail := args[len(args)-3:]
-	if !slices.Equal(tail, []string{"rt//1", "store", "--debug"}) {
-		t.Errorf("tail = %q", tail)
-	}
-	// a socket outside the runtime dir (testing) is exposed by path
-	if got := socketDir("/tmp/kwk/kwakore/daemon.sock"); got != "/tmp/kwk/kwakore" {
-		t.Errorf("socketDir = %q", got)
-	}
-}
-
 func TestVersionAtLeast(t *testing.T) {
 	for v, want := range map[string]bool{
 		"1.15.6": true, "1.16.0": true, "1.18.3": true, "2.0": true,

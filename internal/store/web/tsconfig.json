@@ -11,5 +11,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["internal/store/web/**/*.ts", "internal/store/web/**/*.svelte", "internal/store/nap-steamduck/**/*.ts", "vite*.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "../nap-steamduck/**/*.ts", "vite*.config.ts"]
 }

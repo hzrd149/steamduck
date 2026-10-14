@@ -22,7 +22,7 @@
               git
             ];
 
-            # The Go binary uses purego to load Kwakore's webview at runtime.
+            # Kwakore owns the webview; the Steamduck broker builds without cgo.
             CGO_ENABLED = "0";
             # Use the pinned compiler rather than downloading one implicitly.
             GOTOOLCHAIN = "local";

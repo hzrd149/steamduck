@@ -8,6 +8,7 @@
   import { initStore, showTab, startStore } from "./store.js";
   import { navigation, notification, runtimeStatus } from "./ui";
   import Catalog from "./views/Catalog.svelte";
+  import FeatureScreens from "./views/FeatureScreens.svelte";
   import logo from "./logo.png";
 
   let unavailable = $state("");
@@ -20,9 +21,6 @@
   }
 
   onMount(() => {
-    const screens = document.getElementById("legacy-screens") as HTMLTemplateElement;
-    document.getElementById("legacy-views")!.append(screens.content);
-    screens.remove();
     let closed = false;
     const disposers: Array<() => void> = [];
     const stop = () => {
@@ -66,10 +64,9 @@
   <div class="status" class:ok={$runtimeStatus.ready} class:bad={!$runtimeStatus.ready} id="status" title="kwakore service"><span class="dot"></span><span id="status-text">{$runtimeStatus.text}</span></div>
 </header>
 
-<!-- The remaining screens are retained in index.html during the incremental migration. -->
 <main>
   <p id="runtime-unavailable" class="empty" role="alert" hidden={!unavailable}>{unavailable}</p>
   <Catalog />
-  <div id="legacy-views"></div>
+  <FeatureScreens />
 </main>
 <div id="toast" class="toast" class:error={$notification?.error} role="status" hidden={!$notification}>{$notification?.text || ""}</div>

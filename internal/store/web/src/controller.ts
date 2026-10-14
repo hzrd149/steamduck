@@ -1,5 +1,3 @@
-import { legacyGamepads } from "./legacy";
-
 type Action = "left" | "right" | "up" | "down" | "a" | "b" | "l1" | "r1";
 type Pad = { buttons: ArrayLike<{ pressed: boolean }>; axes: ArrayLike<number> };
 const directions = new Set<Action>(["left", "right", "up", "down"]);
@@ -36,15 +34,13 @@ export function startController(handlers: Record<Action, () => void>): () => voi
   function poll(t: number): void {
     if (stopped) return;
     const domain = window.napplet?.gamepad;
-    const active = !document.hidden && (domain ? domain.available && domain.focused :
-      import.meta.env.MODE === "legacy" && document.hasFocus());
+    const active = !document.hidden && domain?.available && domain.focused;
     if (!active) {
       pressed.clear();
       blocked.clear();
       focused = false;
     } else {
-      const pads = domain ? domain.getGamepads() :
-        import.meta.env.MODE === "legacy" ? legacyGamepads() : [];
+      const pads = domain.getGamepads();
       const now = actionsFor(pads);
       if (!focused) {
         blocked = new Set(now);

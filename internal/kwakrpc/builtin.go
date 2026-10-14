@@ -114,7 +114,7 @@ func (c *Client) RunBuiltin(ctx context.Context, definition BuiltinDefinition, c
 		return errors.New("invalid built-in acknowledgement")
 	}
 	if ack.Error != nil {
-		return fmt.Errorf("kwakore cannot open the built-in store: %w; update kwakore or use store --legacy-window", ack.Error)
+		return fmt.Errorf("kwakore cannot open the built-in store: %w; update kwakore and restart its daemon", ack.Error)
 	}
 	if ack.Result == nil || ack.Result.Outcome != "attached" || ack.Result.Window == nil || ack.Result.Window.Instance == "" || ack.Result.Window.Format != "napplet" {
 		return errors.New("invalid built-in window descriptor")

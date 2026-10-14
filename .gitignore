@@ -1,5 +1,9 @@
 /steamduck
 /dist/
+/internal/store/web/dist/
+/internal/store/web/node_modules/
+/internal/store/web/test-results/
+/internal/store/web/playwright-report/
 /node_modules/
 /test-results/
 /playwright-report/

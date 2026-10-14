@@ -156,47 +156,6 @@ func WindowArgs(runtime, releaseDir string, w kwakrpc.AttachedWindow) []string {
 	return append(args, runtime)
 }
 
-// StoreArgs are the `flatpak run` arguments that run the steamduck binary
-// exe as the store inside runtime. The store reaches kwakore through its
-// socket, starts napplet windows inside its own sandbox (so they stay in
-// its Steam session), and runs host commands such as `steamduck sync`
-// through flatpak-spawn --host.
-func StoreArgs(runtime, exe, releaseDir, socket string, storeArgs []string) []string {
-	args := []string{
-		"run",
-		"--command=" + exe,
-		"--filesystem=" + filepath.Dir(exe) + ":ro",
-		"--filesystem=" + releaseDir + ":ro",
-		"--filesystem=" + socketDir(socket),
-		"--filesystem=" + paths.DataDir() + ":create",
-		"--talk-name=org.freedesktop.Flatpak",
-	}
-	args = append(args, sandboxArgs()...)
-	args = append(args,
-		"--env=STEAMDUCK_IN_FLATPAK=1",
-		"--env=STEAMDUCK_HOST_EXE="+exe,
-		"--env=STEAMDUCK_KWAKORE_DIR="+releaseDir,
-		"--env=STEAMDUCK_KWAKORE_SOCKET="+socket,
-		"--env=XDG_DATA_HOME="+filepath.Dir(paths.DataDir()),
-		runtime,
-		"store",
-	)
-	return append(args, storeArgs...)
-}
-
-// socketDir exposes the directory of the kwakore socket. One below
-// $XDG_RUNTIME_DIR uses Flatpak's xdg-run form, which maps it to the same
-// path inside the sandbox.
-func socketDir(socket string) string {
-	dir := filepath.Dir(socket)
-	if rt := os.Getenv("XDG_RUNTIME_DIR"); rt != "" {
-		if rel, err := filepath.Rel(rt, dir); err == nil && !strings.HasPrefix(rel, "..") && rel != "." {
-			return "xdg-run/" + rel
-		}
-	}
-	return dir
-}
-
 // titleText reduces an author-provided name to one bounded line, as kwakore
 // does before it puts a name in the window program's environment.
 func titleText(name string) string {

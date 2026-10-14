@@ -1,9 +1,9 @@
 import { expect, test, type FrameLocator, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-const prelude = readFileSync(new URL("../../internal/store/built/steamduck.js", import.meta.url), "utf8");
+const prelude = readFileSync(new URL("../../built/steamduck.js", import.meta.url), "utf8");
 const extension = readFileSync(new URL("./fixtures/kwakore-extension.js", import.meta.url), "utf8");
-const app = readFileSync(new URL("../../internal/store/built/napplet.html", import.meta.url), "utf8");
+const app = readFileSync(new URL("../../built/napplet.html", import.meta.url), "utf8");
 const metadata = { version: 1, methods: ["status", "installed", "icon", "sync"], kwakore_protocol_version: 1 };
 
 async function setup(page: Page, withApp = false) {

@@ -23,7 +23,6 @@ body {
   user-select: none;
 }
 #app { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-#legacy-views { display: contents; }
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus { outline: none; }

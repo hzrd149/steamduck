@@ -12,10 +12,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -38,7 +36,7 @@ Usage:
   steamduck install [--kwakore-version TAG] [--kwakore-archive FILE] [--kwakore-installer FILE] [--skip-kwakore]
   steamduck uninstall [--kwakore] [--keep-shortcuts] [--restart-steam]
   steamduck doctor [--json]
-  steamduck store [--serve 127.0.0.1:PORT] [--debug]
+  steamduck store [--debug]
   steamduck launch --napplet ADDRESS [--appid ID] [--try]
   steamduck sync [--watch] [--force] [--restart-steam] [--json]
   steamduck shortcuts
@@ -388,22 +386,11 @@ func runLaunch(ctx context.Context, log *slog.Logger, args []string) error {
 
 func runStore(ctx context.Context, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("store", flag.ExitOnError)
-	serve := fs.String("serve", "", "serve the UI over HTTP on this loopback address instead of opening a window")
 	debug := fs.Bool("debug", false, "enable the webview inspector")
-	legacy := fs.Bool("legacy-window", false, "use the standalone compatibility store instead of the built-in napplet")
 	_ = fs.Parse(args)
 
-	inSandbox := os.Getenv("STEAMDUCK_IN_FLATPAK") != "" && flatpak.InSandbox()
-	if !inSandbox && *serve == "" && *legacy {
-		cfg, err := paths.LoadConfig()
-		if err != nil {
-			return err
-		}
-		// No WebKitGTK on the host: run the store window inside the
-		// Flatpak runtime.
-		if flatpak.Use(cfg) {
-			return execStoreInFlatpak(ctx, log, cfg.FlatpakRuntime, args)
-		}
+	if flatpak.InSandbox() {
+		return fmt.Errorf("the native store broker must run on the host; start steamduck store outside Flatpak")
 	}
 
 	c, err := client()
@@ -411,11 +398,9 @@ func runStore(ctx context.Context, log *slog.Logger, args []string) error {
 		return err
 	}
 	defer c.Close()
-	if *serve == "" && !*legacy {
-		native := c.WithoutRetry()
-		defer native.Close()
-		c = native
-	}
+	native := c.WithoutRetry()
+	defer native.Close()
+	c = native
 	api := &store.API{Client: c, Log: log, AppID: launcher.AppIDFromEnv(), Stderr: logFile}
 	api.OnSync = func(ctx context.Context) (any, error) {
 		s, err := newSyncer(log, c)
@@ -424,84 +409,12 @@ func runStore(ctx context.Context, log *slog.Logger, args []string) error {
 		}
 		return s.Sync(ctx)
 	}
-	if inSandbox {
-		// Inside the sandbox, napplet windows start as the store's own
-		// children (they stay in its Steam session), and the shortcut sync
-		// runs on the host, where Steam's processes and files are.
-		api.StartWindow = func(ctx context.Context, address string, try bool) error {
-			return flatpak.StartWindow(ctx, c, address, try, logFile)
-		}
-		api.OnSync = hostSync
-	}
-	if *serve != "" {
-		return store.Serve(ctx, api, *serve, func(url string) { fmt.Println("store UI:", url) })
-	}
-	if *legacy {
-		return store.RunWindow(ctx, api, *debug)
-	}
-	if inSandbox {
-		return fmt.Errorf("the native store broker must run on the host; start steamduck store outside Flatpak")
-	}
 	cfg, err := paths.LoadConfig()
 	if err != nil {
 		return err
 	}
 	return store.RunBuiltin(ctx, api, cfg, *debug)
 }
-
-// execStoreInFlatpak replaces this process with the store running inside
-// the Flatpak runtime. The PID Steam started stays the store's.
-func execStoreInFlatpak(ctx context.Context, log *slog.Logger, runtime string, args []string) error {
-	flatpakBin, err := exec.LookPath("flatpak")
-	if err != nil {
-		return fmt.Errorf("no WebKitGTK 4.1 on this system and flatpak is not installed: %w", err)
-	}
-	if !flatpak.Installed(ctx, runtime) {
-		return fmt.Errorf("no WebKitGTK 4.1 on this system and the Flatpak runtime %s is not installed; run `steamduck runtime install`", runtime)
-	}
-	releaseDir, err := flatpak.ReleaseDir()
-	if err != nil {
-		return err
-	}
-	c, err := client()
-	if err != nil {
-		return err
-	}
-	socket := c.SocketPath()
-	c.Close()
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	exe, _ = filepath.EvalSymlinks(exe)
-	log.Info("opening the store in the Flatpak runtime", "runtime", runtime)
-	if logFile != nil {
-		_ = syscall.Dup3(int(logFile.Fd()), 2, 0)
-	}
-	argv := append([]string{flatpakBin}, flatpak.StoreArgs(runtime, exe, releaseDir, socket, args)...)
-	return syscall.Exec(flatpakBin, argv, os.Environ())
-}
-
-// hostSync runs `steamduck sync` on the host from inside the sandbox, where
-// Steam's processes are not visible and its files are not mounted.
-func hostSync(ctx context.Context) (any, error) {
-	exe := os.Getenv("STEAMDUCK_HOST_EXE")
-	if exe == "" {
-		return nil, errors.New("STEAMDUCK_HOST_EXE is not set")
-	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "flatpak-spawn", "--host", exe, "sync", "--json").Output()
-	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
-			return nil, fmt.Errorf("sync: %s", strings.TrimSpace(string(ee.Stderr)))
-		}
-		return nil, fmt.Errorf("sync: %w", err)
-	}
-	return json.RawMessage(out), nil
-}
-
 func runRuntime(ctx context.Context, log *slog.Logger, args []string) error {
 	if len(args) != 1 || (args[0] != "install" && args[0] != "status") {
 		return errors.New("usage: steamduck runtime install|status")

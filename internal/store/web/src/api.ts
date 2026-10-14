@@ -1,6 +1,6 @@
 import type { NappletGlobal } from "@napplet/core";
-import type { BridgeInfo, SteamduckAPI } from "../nap-steamduck/types";
-export type { BridgeInfo, SteamduckAPI } from "../nap-steamduck/types";
+import type { BridgeInfo, SteamduckAPI } from "../../nap-steamduck/types";
+export type { BridgeInfo, SteamduckAPI } from "../../nap-steamduck/types";
 
 // NAP-STEAMDUCK and the draft GAMEPAD binding are provided by the host. This
 // application never installs a shim or grants itself a runtime capability.
