@@ -99,6 +99,14 @@ func (a *API) Call(ctx context.Context, method string, raw json.RawMessage) (any
 			return nil, errors.New("shortcut sync is not available")
 		}
 		return a.OnSync(ctx)
+	case "copy":
+		var cp struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(raw, &cp); err != nil {
+			return nil, err
+		}
+		return nil, copyText(ctx, cp.Text)
 	case "quit":
 		if a.Quit != nil {
 			a.Quit()

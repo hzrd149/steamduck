@@ -247,7 +247,7 @@ async function openDetail(item) {
   $("main").scrollTop = 0;
 
   $("#d-name").textContent = nameOf(item);
-  $("#d-author").textContent = item.author_name ? "by " + item.author_name : (item.author ? "by " + shortNpub(item.author) : "");
+  $("#d-author").textContent = item.author_name ? "by " + item.author_name : "";
   $("#d-desc").textContent = item.description || "";
   $("#d-bg").style.backgroundImage = "";
   loadIcon($("#d-icon"), item).then((url) => {
@@ -312,11 +312,37 @@ function renderMeta(item) {
     dd.textContent = v;
     meta.append(dt, dd);
   };
-  row("Developer", item.author_name || shortNpub(item.author || ""));
+  row("Developer", item.author_name);
   if (item.version?.created_at) row("Published", new Date(item.version.created_at * 1000).toLocaleDateString());
-  row("Needs", (item.required_domains || []).join(", "));
-  if (item.missing_domains?.length) row("Unsupported", item.missing_domains.join(", "));
-  row("Address", item.address);
+  $("#d-unsupported").hidden = item.available !== false && !item.missing_domains?.length;
+}
+
+// The webview may refuse the page's clipboard, above all for a press from
+// the controller, so the store copies it itself when that fails. Failing
+// that too, the address shows so it can be typed out.
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {}
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.append(ta);
+  ta.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {}
+  ta.remove();
+  if (ok) return true;
+  try {
+    await call("copy", { text });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function renderActions() {
@@ -377,7 +403,7 @@ async function loadSocial(item) {
     return;
   }
   if (page.item !== item) return;
-  $("#d-sync").textContent = "Checking relays…";
+  $("#d-sync").textContent = "Refreshing…";
   const before = page.social;
   try {
     const s = await call("napplet.social", { address: item.address, refresh: true });
@@ -387,7 +413,7 @@ async function loadSocial(item) {
     const changed = { comments: s.comments.count !== before.comments.count, mentions: s.mentions.count !== before.mentions.count, zaps: s.zaps.count !== before.zaps.count };
     if (changed[page.tab]) loadList(page.tab).catch(() => {});
   } catch {
-    if (page.item === item) $("#d-sync").textContent = "Relays did not answer";
+    if (page.item === item) $("#d-sync").textContent = "Couldn't refresh";
   }
 }
 
@@ -657,16 +683,6 @@ async function loadPermissions(item) {
     list.append(row);
   }
   $("#perm-empty").hidden = res.saved_rules.length > 0;
-  const domains = $("#d-domains");
-  domains.replaceChildren();
-  for (const [k, v] of [["Uses", res.required_domains], ["May use", res.optional_domains]]) {
-    if (!v?.length) continue;
-    const dt = document.createElement("dt");
-    dt.textContent = k;
-    const dd = document.createElement("dd");
-    dd.textContent = v.join(", ");
-    domains.append(dt, dd);
-  }
 }
 
 // A second press on the same button confirms; anything else cancels.
@@ -844,6 +860,11 @@ $("#sync").addEventListener("click", (e) => busy(e.currentTarget, async () => {
 }));
 
 $("#d-back").addEventListener("click", closeDetail);
+$("#d-copy").addEventListener("click", async () => {
+  const address = page.item.address;
+  if (await copyText(address)) toast("Address copied");
+  else toast("Couldn't copy. The address is " + address, true);
+});
 for (const t of document.querySelectorAll(".ptab")) t.addEventListener("click", () => showPageTab(t.dataset.ptab));
 for (const b of $("#d-votes").children) b.addEventListener("click", () => busy(b, () => vote(b.dataset.vote)));
 for (const name of Object.keys(LISTS)) {
