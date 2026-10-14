@@ -154,7 +154,7 @@ func (c *Client) Discover(ctx context.Context, p DiscoverParams) (*DiscoverPage,
 
 // Installed returns every installed napplet, following pagination.
 func (c *Client) Installed(ctx context.Context) ([]InstalledItem, error) {
-	var all []InstalledItem
+	all := []InstalledItem{} // an empty list, not null, for the store UI
 	offset := 0
 	for {
 		var page Page[InstalledItem]

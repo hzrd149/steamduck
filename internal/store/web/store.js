@@ -128,7 +128,7 @@ function renderCards(grid, items, opts) {
 }
 
 async function loadInstalledState() {
-  const items = await call("installed");
+  const items = (await call("installed")) || [];
   state.installed = new Map(items.map((i) => [i.address, i]));
 }
 
@@ -145,6 +145,7 @@ async function loadDiscover(append, refresh) {
   if (append && state.nextOffset != null) params.offset = state.nextOffset;
   if (refresh) params.refresh = true;
   const page = await call("discover", params);
+  page.items = page.items || [];
   state.discover = append ? state.discover.concat(page.items) : page.items;
   state.nextOffset = page.next_offset;
   renderCards($("#discover-grid"), state.discover, { library: false });
