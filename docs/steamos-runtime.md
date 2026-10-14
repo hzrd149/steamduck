@@ -9,7 +9,7 @@ When the host has no WebKitGTK 4.1, steamduck runs its WebKit windows inside the
 Only the window programs run in the sandbox; the kwakore service stays on the host:
 
 - **Napplet windows.** `steamduck launch` makes a kwakore *attached launch* (`napplet.launch` with `attach:true`), puts the returned connection on its stdin and stdout, and execs `flatpak run --command=…/kwaklet org.gnome.Platform//50`. The window speaks to the daemon over that inherited connection, so the sandbox has **no network** (`--unshare=network`). It gets the kwakore release directory read-only, X11, GPU and sound. The process Steam started stays the window's.
-- **The store.** `steamduck store` re-runs itself inside the runtime with access to the kwakore socket. Play starts `kwaklet` as the store's own child inside the same sandbox. "Sync Steam shortcuts" runs `steamduck sync` on the host through `flatpak-spawn --host`, because Steam's processes and files are outside the sandbox.
+- **The store.** `steamduck store` keeps its native administrative broker on the host and runs only the trusted built-in's `kwaklet` window inside the runtime. The child gets the inherited window protocol, with no socket or network access. Play opens an ordinary napplet window; Steam shortcut sync stays on the host. The older whole-store sandbox path remains available through `--legacy-window`.
 
 WebKit's DMA-BUF renderer leaves windows blank inside the sandbox under X11, so it is turned off (`WEBKIT_DISABLE_DMABUF_RENDERER=1`).
 

@@ -42,7 +42,8 @@ from [NAP-STEAMDUCK](NAP-STEAMDUCK.md). It displays an unavailable view when the
 private domain is absent or incompatible. It does not install a runtime shim,
 create a privileged namespace, use direct HTTP, or reach native Go bindings.
 
-Optional domains are detected by their actual injected presence:
+NAP-RESOURCE is required for image mediation. Optional domains are detected by
+their actual injected presence:
 
 - `gamepad`: controller snapshots from the runtime's native reader. Navigation
   stops while unavailable or unfocused; buttons held across focus regain must
@@ -59,7 +60,7 @@ Optional domains are detected by their actual injected presence:
   merges only changed fields into a fresh read before publishing. Signer denial
   leaves edits available for retry. Private keys never enter the editor.
 - `resource`: profile and badge image bytes come through runtime mediation.
-  Only bounded raster images are rendered, as data URLs. Without this capability,
+  Only bounded raster images are rendered, as document-owned blob URLs. Without this capability,
   the profile uses placeholder artwork and makes no direct network requests.
 - `intent`: “Open profile app” and social account buttons dispatch
   `napplet:profile/open` with the selected public key.
@@ -79,14 +80,16 @@ that entrypoint is published; the required runtime contract is unchanged.
 
 Kwakore now supports native built-ins and custom domains. The separately built
 [NAP-STEAMDUCK binding](nap-steamduck-binding.md) targets its lexical private
-transport. Steamduck's native registration, launch and handler adapter are still
-pending, along with the deadline/response-limit issues recorded in that guide.
+transport. Steamduck registers the approved store through its native broker;
+catalog/install state stays in NAP-STEAMDUCK, while images use RESOURCE references.
+Installed lists are paginated, and custom response envelopes stay within 256 KiB.
 The original [Kwakore handoff](kwakore-custom-nap-handoff.md) is proposal history;
 the new runtime's native-built-in documentation defines its implemented contract.
 
 ## Compatibility and live development
 
-The current `steamduck store` command continues to use the compatibility build.
+`steamduck store` opens the trusted built-in napplet.
+`steamduck store --legacy-window` uses the compatibility build.
 Its adapter maps the existing Go binding or token-protected loopback HTTP calls
 to the same frontend interface. It is compiled out of the production napplet.
 Browser-native gamepad polling is retained only in this compatibility build;
@@ -158,3 +161,34 @@ These tests use a mock NAP-STEAMDUCK host, not an implemented Kwakore extension.
 Real Kwakore/WebKit and physical Steam Deck verification follow the native
 integration. The build emits the custom `steamduck` required-domain tag with an
 expected plugin warning because that private domain is outside its stock registry.
+
+## Native store testing
+
+The native path requires Kwakore `c9b4016c2884b04bbedb9a542bfcaf55bf6a8ebf`
+or a later version containing built-in RESOURCE support, cached original Blossom
+icons and 180-second custom route deadlines. The release workflow pins this
+revision. The trusted built-in requests gamepad, theme, storage and RESOURCE;
+other optional account domains are used only when the runtime supplies them.
+
+An assembled development runtime is available locally in `dist/testing` with
+`steamduck`, `kwakore`, `kwak`, `kwaklet` and `libwebview.so`. This opt-in smoke
+starts a separate daemon under temporary XDG directories and runs the actual
+store, injected extension and stock domains in WebKit without touching Steam:
+
+```sh
+NO_AT_BRIDGE=1 STEAMDUCK_STORE_SMOKE=1 \
+  STEAMDUCK_KWAKORE_DIR="$PWD/dist/testing" \
+  xvfb-run -a go test ./internal/store -run '^TestRealBuiltinStore$' -count=1 -v
+```
+
+For a live store, first run/install the matching Kwakore daemon, then launch:
+
+```sh
+STEAMDUCK_KWAKORE_DIR="$PWD/dist/testing" ./dist/testing/steamduck store --debug
+```
+
+On a physical Deck, verify controller navigation, held-button release after
+focus changes, Play opening an ordinary napplet, and return to the store after
+closing the game. Check that image fetch denial leaves usable placeholders and
+that Sync Steam shortcuts still runs on the host. Xvfb checks cannot substitute
+for physical controller, gamescope, Steam overlay or Flatpak verification.

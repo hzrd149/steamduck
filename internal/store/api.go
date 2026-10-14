@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/hzrd149/steamduck/internal/kwakrpc"
@@ -34,9 +33,6 @@ type API struct {
 	// StartWindow, when set, opens napplet windows instead of the default
 	// launch paths (the store's Flatpak sandbox sets it).
 	StartWindow func(ctx context.Context, address string, try bool) error
-
-	iconMu sync.Mutex
-	icons  map[string]string // address -> data URL ("" when none)
 
 	profiles profileCache
 }
@@ -86,11 +82,30 @@ func (a *API) Call(ctx context.Context, method string, raw json.RawMessage) (any
 		}
 		return a.callClient(ctx).Discover(ctx, dp)
 	case "installed":
-		return a.callClient(ctx).Installed(ctx)
+		var p struct {
+			Offset int `json:"offset"`
+			Limit  int `json:"limit"`
+		}
+		if len(raw) != 0 && string(raw) != "null" {
+			if err := json.Unmarshal(raw, &p); err != nil {
+				return nil, err
+			}
+		}
+		if p.Limit == 0 {
+			p.Limit = 60
+		}
+		return a.callClient(ctx).InstalledPage(ctx, p.Offset, p.Limit)
 	case "detail":
 		return a.callClient(ctx).Detail(ctx, p.Address)
 	case "icon":
-		return a.icon(ctx, p.Address), nil
+		detail, err := a.callClient(ctx).Detail(ctx, p.Address)
+		if err != nil {
+			return nil, err
+		}
+		if detail.Icon == nil {
+			return nil, nil
+		}
+		return detail.Descriptor.IconResource(), nil
 	// Installs and updates get their own connection, so browsing goes on
 	// while they download.
 	case "install":
@@ -173,30 +188,6 @@ func (a *API) launch(ctx context.Context, try bool, address string) (any, error)
 		go launcher.TagLoop(context.Background(), res.WindowID, a.AppID, a.Log)
 	}
 	return res, nil
-}
-
-// icon returns a napplet's icon as a data URL, cached for the session.
-func (a *API) icon(ctx context.Context, address string) string {
-	a.iconMu.Lock()
-	if a.icons == nil {
-		a.icons = map[string]string{}
-	}
-	if v, ok := a.icons[address]; ok {
-		a.iconMu.Unlock()
-		return v
-	}
-	a.iconMu.Unlock()
-
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	url := ""
-	if icon, err := a.callClient(ctx).Icon(ctx, address); err == nil {
-		url = "data:image/png;base64," + icon.Data
-	}
-	a.iconMu.Lock()
-	a.icons[address] = url
-	a.iconMu.Unlock()
-	return url
 }
 
 // ErrorJSON turns an error into what the UI shows: the daemon's fixed

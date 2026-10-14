@@ -32,8 +32,8 @@ func SteamduckPrelude() string { return steamduckPrelude }
 // session. Its host must provide NAP-STEAMDUCK before application scripts run.
 func NappletPage() string { return nappletHTML }
 
-// Page returns the compatibility build used until Kwakore can open the store
-// as a built-in napplet. It retains the native binding and loopback dev server.
+// Page returns the compatibility build for --legacy-window and the loopback
+// dev server. The default store uses NappletPage through Kwakore's built-in API.
 func Page() (string, error) { return legacyHTML, nil }
 
 // Serve runs the UI over HTTP on a loopback address for development in an

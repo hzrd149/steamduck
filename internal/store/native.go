@@ -15,7 +15,7 @@ import (
 	"github.com/hzrd149/steamduck/internal/kwakrpc"
 )
 
-const nativeResponseLimit = 8 << 20
+const nativeResponseLimit = 262144
 
 // BuiltinDefinition contains only the approved assets embedded in this binary.
 // No manifest, UI parameter or remote document can supply an extension prelude.
@@ -30,7 +30,7 @@ func BuiltinDefinition() kwakrpc.BuiltinDefinition {
 		}
 		routes = append(routes, kwakrpc.ExtensionRoute{Type: typ, MaxRequestBytes: 262144, MaxResponseBytes: nativeResponseLimit, Concurrency: 16, RequestsPerSecond: 50, DeadlineMS: deadline})
 	}
-	return kwakrpc.BuiltinDefinition{Key: "org.steamduck.store", HTML: html, SHA256: hex.EncodeToString(sum[:]), Name: "Steamduck Store", Width: 1280, Height: 800, Domains: []string{"gamepad", "theme", "storage"}, Extensions: []kwakrpc.ExtensionDomain{{Name: "steamduck", Version: "1", Prelude: SteamduckPrelude(), Routes: routes}}}
+	return kwakrpc.BuiltinDefinition{Key: "org.steamduck.store", HTML: html, SHA256: hex.EncodeToString(sum[:]), Name: "Steamduck Store", Width: 1280, Height: 800, Domains: []string{"gamepad", "theme", "storage", "resource"}, Extensions: []kwakrpc.ExtensionDomain{{Name: "steamduck", Version: "1", Prelude: SteamduckPrelude(), Routes: routes}}}
 }
 
 type nativeInput struct {
@@ -47,7 +47,7 @@ type paramRule struct {
 // Rules are independent of the daemon method catalog. Store methods never
 // fall through to arbitrary RPC. Direct control calls have their own route.
 var nativeMethods = map[string]paramRule{
-	"status": {}, "installed": {}, "sync": {}, "quit": {},
+	"status": {}, "installed": {fields: "offset:i limit:i"}, "sync": {}, "quit": {},
 	"discover": {fields: "query:s refresh:b offset:i limit:i archetype:s compatible:b"},
 	"detail":   {required: "address", fields: "address:s"}, "icon": {required: "address", fields: "address:s"},
 	"install": {required: "address", fields: "address:s"}, "update": {required: "address", fields: "address:s"},
@@ -228,7 +228,7 @@ func (a *API) HandleNative(ctx context.Context, request kwakrpc.ExtensionRequest
 				fail(-32602, "Invalid params")
 				break
 			}
-			if input.Method == "events.subscribe" || strings.HasPrefix(input.Method, "runtime.") ||
+			if input.Method == "events.subscribe" || input.Method == "napplet.icon" || strings.HasPrefix(input.Method, "runtime.") ||
 				(input.Method == "napplet.launch" || input.Method == "napplet.try") && string(fields["attach"]) == "true" {
 				fail(1100, "Unsupported operation")
 				break
@@ -236,7 +236,11 @@ func (a *API) HandleNative(ctx context.Context, request kwakrpc.ExtensionRequest
 			client := a.Client.Fork()
 			defer client.Close()
 			var raw json.RawMessage
-			err = client.Call(callCtx, input.Method, input.Params, &raw)
+			var params any = input.Params
+			if len(input.Params) == 0 || string(input.Params) == "null" {
+				params = nil // Omit absent params; the daemon rejects literal null.
+			}
+			err = client.Call(callCtx, input.Method, params, &raw)
 			result = raw
 		default:
 			fail(-32601, "Method not found")
@@ -245,18 +249,30 @@ func (a *API) HandleNative(ctx context.Context, request kwakrpc.ExtensionRequest
 			response["error"] = nativeError(err)
 		}
 		if _, failed := response["error"]; !failed {
+			addIconReferences(result)
 			response["result"] = result
 		}
 	}
 	raw, err := json.Marshal(response)
-	// Two maximum-sized profile images plus metadata can exceed the route. Keep
-	// the avatar and omit only the banner rather than losing the whole profile.
-	if len(raw) > nativeResponseLimit && input.Method == "profile.get" {
-		if p, ok := response["result"].(*profile); ok && p != nil {
-			copy := *p
-			copy.Banner = ""
-			response["result"] = &copy
-			raw, err = json.Marshal(response)
+	if len(raw) > nativeResponseLimit && input.Type == "steamduck.request" {
+		// Return fewer records with a correct continuation offset, never a
+		// silently truncated complete list. Other metadata retains its schema.
+		encoded, _ := json.Marshal(response["result"])
+		var page map[string]json.RawMessage
+		var items []json.RawMessage
+		if json.Unmarshal(encoded, &page) == nil && json.Unmarshal(page["items"], &items) == nil {
+			var params struct {
+				Offset int `json:"offset"`
+			}
+			_ = json.Unmarshal(input.Params, &params)
+			for len(raw) > nativeResponseLimit && len(items) > 1 {
+				items = items[:len(items)-1]
+				page["items"], _ = json.Marshal(items)
+				page["next_offset"], _ = json.Marshal(params.Offset + len(items))
+				encoded, _ = json.Marshal(page)
+				response["result"] = json.RawMessage(encoded)
+				raw, err = json.Marshal(response)
+			}
 		}
 	}
 	if err != nil || len(raw) > nativeResponseLimit {
@@ -265,4 +281,24 @@ func (a *API) HandleNative(ctx context.Context, request kwakrpc.ExtensionRequest
 		raw, _ = json.Marshal(response)
 	}
 	return kwakrpc.BuiltinResponse{Envelope: raw, Close: closeWindow}
+}
+
+func addIconReferences(result any) {
+	add := func(d *kwakrpc.Descriptor) {
+		if d.Icon != nil {
+			d.Icon.Resource = d.IconResource()
+		}
+	}
+	switch value := result.(type) {
+	case *kwakrpc.DiscoverPage:
+		for i := range value.Items {
+			add(&value.Items[i])
+		}
+	case *kwakrpc.Page[kwakrpc.InstalledItem]:
+		for i := range value.Items {
+			add(&value.Items[i].Descriptor)
+		}
+	case *kwakrpc.Detail:
+		add(&value.Descriptor)
+	}
 }

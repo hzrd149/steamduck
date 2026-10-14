@@ -53,7 +53,7 @@ extension.routes = [
 Each route must also declare Kwakore's request/response size bounds, concurrency,
 rate and deadline. The native definition includes `store.NappletPage()`, its
 exact SHA-256, a stable storage key, and requested stock domains such as
-`gamepad`, `theme` and `storage`. Do not add `steamduck` to the stock shim's global
+`gamepad`, `theme`, `storage` and `resource`. Do not add `steamduck` to the stock shim's global
 domain list; it is installed by this extension's own approved prelude.
 
 The prelude runs inside Kwakore's trusted scope after the stock namespace and
@@ -81,13 +81,13 @@ The generated prelude keeps the handle private and disposes local waits on
 - Rejects invalid parameter types, cycles, non-finite numbers, functions,
   undefined values, symbols and non-JSON objects before dispatch. Error messages
   never echo parameter values. Accessor properties are not executed.
-- Rejects event subscriptions, attached launches and native-only
+- Rejects raw `napplet.icon`, event subscriptions, attached launches and native-only
   `runtime.builtin.*` / `runtime.extension.*` management calls locally. The native
   dispatcher must enforce those exclusions independently.
 - Bounds local pending calls at 64. Closing rejects current/future waits with
   code 1007. There is no retry, reconnect or claim of mutation rollback.
 - Requests the method-specific draft host budget plus five seconds of transport
-  overhead. Kwakore's current helper may apply a lower cap, described below.
+  overhead. The runtime helper caps local waits at 185 seconds.
 
 Kwakore's reserved runtime failures are mapped to the store's public errors:
 deadline → 1008 Timeout; rate/concurrency → 1003 Busy; document-ended → 1007
@@ -95,31 +95,24 @@ Closing; invalid-request → -32602 Invalid params; other internal, malformed or
 size failures → -32603 Internal error. This preserves existing UI explanations
 without returning raw internal errors.
 
-## Native integration still required
+## Native integration and resource budgets
 
-The binding and compiled store can now be registered with Kwakore's implemented
-extension mechanism. Steamduck still needs the native registration/proxy launch
-and extension handler that dispatches to its Go store API. Production
-`steamduck store` still uses the compatibility window until that adapter is
-implemented and verified. Authorization remains in Kwakore's per-instance,
-per-generation route handling; the JavaScript binding cannot grant native access.
+`steamduck store` registers the embedded HTML and extension through the native
+builtin broker. The host dispatches validated convenience requests and direct
+control calls on separate authenticated connections, without mutation retries.
+Only the approved built-in gets this extension. Games launch as ordinary napplets.
+The compatibility window remains available with `--legacy-window`.
 
-Two current Kwakore bounds need resolution for the complete draft contract:
+Custom route deadlines allow 180 seconds, and the private helper allows 185
+seconds. Custom responses remain capped at 262,144 bytes. Icons and profile images
+are NAP-RESOURCE references, not base64 payloads. Installed/catalog/social lists
+are paginated; oversized convenience pages shorten with a correct continuation.
+Direct results preserve daemon schemas and fail explicitly if oversized.
 
-1. Route deadlines are at most 120,000 ms and the helper caps local waits at
-   125,000 ms. The draft requires up to 180 seconds for install/update and direct
-   control calls, and 135 seconds for pairing waits. The binding requests those
-   budgets but cannot override the runtime's limits. Supporting the full draft
-   requires increasing both runtime bounds or explicitly redesigning long
-   operations; it must not silently replay timed-out work.
-2. Custom responses are at most 262,144 bytes. Existing complete installed lists,
-   social results, icons and profile images can exceed that. Profile downloads
-   alone currently allow up to 3 MiB per image before base64 encoding. The native
-   adapter needs bounded result/image handling or a larger explicit runtime
-   response allowance before all convenience operations can be claimed supported.
-
-These limitations are recorded rather than changing the draft's operation
-semantics or introducing undocumented streaming operations.
+The built-in requests RESOURCE. Original cached icons resolve via
+`blossom:<hash>.<ext>` without network access; a miss uses normal permission-controlled
+Blossom fetching. Remote HTTPS images retain the
+normal fetch permission, network policy, MIME checks and resource byte limits.
 
 ## Verification
 
@@ -132,9 +125,9 @@ go test ./...
 ```
 
 Browser tests exercise the actual built prelude with a captured Kwakore
-`napExtension` helper from `2c999cf` in an opaque sandbox. They check IDs,
+`napExtension` helper based on `2c999cf`, with the 185-second timeout update in an opaque sandbox. They check IDs,
 out-of-order results, private-port isolation, structured failures, invalid inputs,
 runtime deadlines, no replay, lifecycle cleanup, bounded concurrency and a full
 store round trip. The fixture is test-only; Kwakore supplies the real helper at
-runtime. Native broker, real WebKit and Steam Deck testing remain part of the
-subsequent launch/handler integration.
+runtime. Go tests cover native dispatch, socket brokerage and mutation replay prevention.
+Physical Steam Deck controller testing is still required.

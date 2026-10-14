@@ -65,7 +65,7 @@ function shortId(npub) {
 }
 
 function setImage(el, url) {
-  const ok = url && /^data:image\/(png|jpeg|gif|webp);base64,/.test(url);
+  const ok = url && url.startsWith("blob:");
   el.style.backgroundImage = ok ? `url("${url}")` : "";
   el.classList.toggle("has-image", !!ok);
   return ok;
@@ -82,10 +82,10 @@ function renderProfile(p) {
   $("#p-handle").textContent = handle;
 
   const avatar = $("#p-avatar");
-  if (!setImage(avatar, p.picture)) avatar.textContent = [...(name || "?").trim()][0]?.toUpperCase() || "?";
-  else avatar.textContent = "";
-  setImage($("#p-banner"), p.banner);
-  if (hasIdentity() && !p.loading) {
+  setImage(avatar, "");
+  avatar.textContent = [...(name || "?").trim()][0]?.toUpperCase() || "?";
+  setImage($("#p-banner"), "");
+  if (window.napplet?.resource && !p.loading) {
     for (const [element, url] of [[avatar, p.picture], [$("#p-banner"), p.banner]]) {
       if (!url) continue;
       profileImage(url).then((image) => {

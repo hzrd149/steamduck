@@ -115,7 +115,7 @@ export function installSteamduckBinding(target: Window, transport: ExtensionTran
         }
         copied = jsonCopy(params ?? null);
       } catch { return reject(failure(-32602, "Invalid params")); }
-      if (type === "steamduck.kwakore.request" && (method === "events.subscribe" ||
+      if (type === "steamduck.kwakore.request" && (method === "events.subscribe" || method === "napplet.icon" ||
           ["napplet.launch", "napplet.try"].includes(method!) && copied?.attach === true ||
           method!.startsWith("runtime.builtin.") || method!.startsWith("runtime.extension."))) {
         return reject(failure(1100, "Unsupported operation"));

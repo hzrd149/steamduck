@@ -1,6 +1,6 @@
 import { identityGetProfile } from "@napplet/nap/identity/sdk";
 import { relayQuery, relayPublish } from "@napplet/nap/relay/sdk";
-import { resourceBytes } from "@napplet/nap/resource/sdk";
+import { imageURL, type ResourceReference } from "./images";
 import { intentOpen } from "@napplet/nap/intent/sdk";
 import type { NostrEvent } from "@napplet/core";
 
@@ -13,19 +13,8 @@ export async function readProfile(publicKey: string) {
     found: profile !== null, npub: publicKey };
 }
 
-// Images never make a request from the document's origin. Keep raster-only
-// data URLs so they work in both the opaque runtime and restrictive CSPs.
-export async function profileImage(url: string): Promise<string> {
-  if (!url || !window.napplet?.resource) return "";
-  const blob = await resourceBytes(url);
-  if (!/^image\/(png|jpeg|gif|webp)$/.test(blob.type) || blob.size > 5 * 1024 * 1024) return "";
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error("Could not read the profile image."));
-    reader.readAsDataURL(blob);
-  });
-}
+// Both public identity URLs and native profile resource references use RESOURCE.
+export function profileImage(reference: ResourceReference | string): Promise<string> { return imageURL(reference); }
 
 export async function openUserProfile(pubkey: string): Promise<void> {
   const result = await intentOpen("napplet:profile/open", { payload: { pubkey } });

@@ -12,9 +12,10 @@ for (const [directory, name] of [["store", "napplet"], ["store-legacy", "legacy"
   const hash = createHash("sha256").update(html).digest("hex");
   assert(manifest.tags.some((tag) => tag[0] === "x" && tag[1] === hash), "Manifest must hash the final HTML bytes");
   assert(manifest.tags.some((tag) => tag[0] === "R" && tag[1] === "steamduck"), "Custom domain must be required");
+  assert(manifest.tags.some((tag) => tag[0] === "R" && tag[1] === "resource"), "Image resource support must be declared");
   assert(manifest.tags.some((tag) => tag[0] === "O" && tag[1] === "gamepad"), "Controller support must be declared");
   assert(manifest.tags.some((tag) => tag[0] === "O" && tag[1] === "theme"), "Theme support must be declared");
-  for (const domain of ["identity", "relay", "resource", "intent"]) {
+  for (const domain of ["identity", "relay", "intent"]) {
     assert(manifest.tags.some((tag) => tag[0] === "O" && tag[1] === domain), `Account capability must be declared: ${domain}`);
   }
   const files = await readdir(output);

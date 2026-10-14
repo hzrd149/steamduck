@@ -2,16 +2,14 @@ package store
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
-	"io"
-	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/hzrd149/steamduck/internal/kwakrpc"
 )
 
 // profileRelays are asked for a profile besides the user's own relays:
@@ -24,20 +22,20 @@ var profileRelays = []string{
 }
 
 // profile is the signed-in account's public profile as the UI shows it,
-// with its pictures as data URLs (the page loads nothing from the web).
+// with resource references rather than inline image bytes.
 type profile struct {
-	PublicKey   string `json:"public_key"`
-	Npub        string `json:"npub"`
-	Found       bool   `json:"found"`
-	Name        string `json:"name,omitempty"`
-	DisplayName string `json:"display_name,omitempty"`
-	About       string `json:"about,omitempty"`
-	Website     string `json:"website,omitempty"`
-	NIP05       string `json:"nip05,omitempty"`
-	LUD16       string `json:"lud16,omitempty"`
-	Picture     string `json:"picture,omitempty"`
-	Banner      string `json:"banner,omitempty"`
-	CreatedAt   int64  `json:"created_at,omitempty"`
+	PublicKey   string                     `json:"public_key"`
+	Npub        string                     `json:"npub"`
+	Found       bool                       `json:"found"`
+	Name        string                     `json:"name,omitempty"`
+	DisplayName string                     `json:"display_name,omitempty"`
+	About       string                     `json:"about,omitempty"`
+	Website     string                     `json:"website,omitempty"`
+	NIP05       string                     `json:"nip05,omitempty"`
+	LUD16       string                     `json:"lud16,omitempty"`
+	Picture     *kwakrpc.ResourceReference `json:"picture,omitempty"`
+	Banner      *kwakrpc.ResourceReference `json:"banner,omitempty"`
+	CreatedAt   int64                      `json:"created_at,omitempty"`
 }
 
 type profileParams struct {
@@ -104,13 +102,8 @@ func (a *API) getProfile(ctx context.Context, refresh bool) (*profile, error) {
 			p.Website = clip(m.Website, 200)
 			p.NIP05 = clip(m.NIP05, 200)
 			p.LUD16 = clip(m.LUD16, 200)
-			ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			defer cancel()
-			var wg sync.WaitGroup
-			wg.Add(2)
-			go func() { defer wg.Done(); p.Picture = imageDataURL(ctx, m.Picture) }()
-			go func() { defer wg.Done(); p.Banner = imageDataURL(ctx, m.Banner) }()
-			wg.Wait()
+			p.Picture = profileResource(m.Picture)
+			p.Banner = profileResource(m.Banner)
 		}
 	}
 	// a lookup that found nothing is not cached, so the next visit tries again
@@ -192,37 +185,15 @@ func queryMetadata(ctx context.Context, relay, pk string) *metadataEvent {
 	}
 }
 
-// imageDataURL downloads a profile picture over HTTPS as a data URL, or
-// returns "" for anything that is not a small image.
-func imageDataURL(ctx context.Context, raw string) string {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return ""
+// Profile references are fetched by NAP-RESOURCE with the built-in's normal
+// fetch consent, DNS/redirect checks, MIME sniffing and resource byte limits.
+func profileResource(raw string) *kwakrpc.ResourceReference {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || len(raw) > 2048 || u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return nil
 	}
-	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
-	if err != nil {
-		return ""
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return ""
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return ""
-	}
-	const max = 3 << 20
-	data, err := io.ReadAll(io.LimitReader(res.Body, max+1))
-	if err != nil || len(data) > max {
-		return ""
-	}
-	mime := http.DetectContentType(data)
-	switch mime {
-	case "image/png", "image/jpeg", "image/gif", "image/webp":
-	default:
-		return ""
-	}
-	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
+	return &kwakrpc.ResourceReference{URL: u.String()}
 }
 
 // clip trims s and cuts it to at most n runes.

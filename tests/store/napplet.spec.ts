@@ -12,7 +12,29 @@ const item = {
   update_available: null,
 };
 
-async function openStore(page: Page, options: { missing?: boolean; version?: number; legacy?: boolean; identity?: boolean } = {}) {
+test("icons use RESOURCE references and installed pages have correct continuation", async ({ page }) => {
+  const {frame, requests, errors} = await openStore(page,{icons:true,paginated:true});
+  await expect(frame.locator("#library-grid .card")).toHaveCount(2);
+  await expect(frame.locator("#library-grid .icon.has-image")).toHaveCount(2);
+  const calls = await frame.locator("body").evaluate(() => (window as any).testCalls);
+  expect(calls.filter((call:any)=>call.method === "installed").map((call:any)=>call.params.offset)).toEqual([0,1]);
+  expect(calls.some((call:any)=>call.method === "icon")).toBe(false);
+  expect(await frame.locator("body").evaluate(()=>(window as any).resourceURLs)).toEqual(["blossom:"+"a".repeat(64)+".png"]);
+  expect(requests).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test("denied image fetching leaves a usable fallback without direct network access", async ({ page }) => {
+  const {frame, requests, errors} = await openStore(page,{icons:true,denyImages:true});
+  await expect(frame.locator("#library-grid .card")).toHaveCount(1);
+  await expect.poll(()=>frame.locator("body").evaluate(()=>(window as any).resourceURLs.length)).toBe(1);
+  await expect(frame.locator("#library-grid .icon")).not.toHaveClass(/has-image/);
+  await expect(frame.locator("#library-grid .icon")).toHaveText("D");
+  expect(requests).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+async function openStore(page: Page, options: { missing?: boolean; version?: number; legacy?: boolean; identity?: boolean; icons?: boolean; paginated?: boolean; denyImages?: boolean } = {}) {
   const errors: string[] = [];
   const requests: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -37,7 +59,10 @@ async function openStore(page: Page, options: { missing?: boolean; version?: num
       if (window.testErrors[method]) throw window.testErrors[method];
       switch (method) {
         case "status": return { health: { ready: true, version: "test" } };
-        case "installed": return [${JSON.stringify(item)}];
+        case "installed": return {items: [{...${JSON.stringify(item)},
+          address: ${JSON.stringify(item.address)} + (params?.offset ? "-second" : ""),
+          ${options.icons ? 'icon: {sha256: "a".repeat(64), mime: "image/png", resource: {url: "blossom:" + "a".repeat(64) + ".png", mime: "image/png"}},' : ""}
+        }], total: ${options.paginated ? 2 : 1}, next_offset: ${options.paginated ? "params?.offset ? null : 1" : "null"}};
         case "discover": return {items: [], next_offset: null, fetched_at: "2026-10-13", complete: true};
         case "icon": return "";
         case "launch": return {outcome: "opened", address: params.address};
@@ -93,15 +118,15 @@ async function openStore(page: Page, options: { missing?: boolean; version?: num
             return {...template, pubkey: window.testKey, id: "b".repeat(64)};
           },
         },
-        resource: {
-          async bytes(url) {
-            window.resourceURLs.push(url);
-            return new Blob([new Uint8Array([137, 80, 78, 71])], {type: "image/png"});
-          },
-        },
         intent: {
           async open(uri, options) { window.openedProfile = {uri, options}; return {ok: true}; },
         },` : ""}
+        resource: {
+          async bytes(url) {
+            window.resourceURLs.push(url);
+            ${options.denyImages ? 'throw new Error("blocked-by-policy");' : 'return new Blob([new Uint8Array([137, 80, 78, 71])], {type:"image/png"});'}
+          },
+        },
         gamepad: {
           get available() { return window.testState.available; },
           get focused() { return window.testState.focused; },
@@ -113,7 +138,7 @@ async function openStore(page: Page, options: { missing?: boolean; version?: num
         },
       };`}
   `;
-  const document = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'"><script>${prelude}</script>${options.legacy ? legacy : napplet}`;
+  const document = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'"><script>${prelude}</script>${options.legacy ? legacy : napplet}`;
   await page.setContent('<iframe title="Store" sandbox="allow-scripts" style="border:0;width:1280px;height:800px"></iframe>');
   await page.locator("iframe").evaluate((frame, html) => { (frame as HTMLIFrameElement).srcdoc = html; }, document);
   const frame = page.frameLocator("iframe");
@@ -208,7 +233,7 @@ test("the compatibility browser transport preserves the loopback token check", a
     }
     const method = new URL(request.url()).pathname.slice("/api/".length);
     requests.push({ method, token: request.headers()["x-steamduck-token"] });
-    const result = method === "installed" ? [item] : method === "icon" ? "" :
+    const result = method === "installed" ? {items:[item], total:1, next_offset:null} : method === "icon" ? "" :
       method === "status" ? { health: { ready: true, version: "loopback" } } : null;
     return route.fulfill({ json: { result } });
   });

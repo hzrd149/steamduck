@@ -1,3 +1,4 @@
+import { imageURL } from "./images";
 import { call } from "./api";
 import { loadAccount, modalOpen, closeModal } from "./account.js";
 import { loadSettings } from "./settings";
@@ -29,23 +30,17 @@ export async function busy(button, fn) {
   }
 }
 
-// Icons load lazily and are cached for the session. Until one arrives, or
-// when a napplet has none, the tile shows the name's first letter. The
-// promise gives the data URL, or "" for none.
-const iconCache = new Map();
+// Cached icon references are resolved by NAP-RESOURCE, not the custom API.
 function loadIcon(el, item) {
   el.textContent = [...(item.name || "?").trim()][0]?.toUpperCase() || "?";
   el.style.backgroundImage = "";
   el.classList.remove("has-image");
   if (!item.icon) return Promise.resolve("");
-  let p = iconCache.get(item.address);
-  if (!p) {
-    p = call("icon", { address: item.address }).catch(() => "");
-    iconCache.set(item.address, p);
-  }
-  return p.then((url) => {
-    // data: URLs from the daemon's verified PNGs only
-    if (!url || !url.startsWith("data:image/png;base64,")) return "";
+  const reference = item.icon.resource || {url: "blossom:" + item.icon.sha256 + "." + ({"image/png":"png","image/jpeg":"jpg","image/webp":"webp"}[item.icon.mime] || "bin"), mime: item.icon.mime};
+  const key = reference.url;
+  el.dataset.resource = key;
+  return imageURL(reference).then((url) => {
+    if (!url || el.dataset.resource !== key) return "";
     el.style.backgroundImage = `url("${url}")`;
     el.classList.add("has-image");
     return url;
@@ -139,7 +134,15 @@ function renderCards(grid, items, opts) {
 }
 
 async function loadInstalledState() {
-  const items = (await call("installed")) || [];
+  const items = [];
+  let offset = 0;
+  for (;;) {
+    const page = await call("installed", {offset, limit:60});
+    items.push(...(page.items || []));
+    if (page.next_offset == null) break;
+    if (!Number.isInteger(page.next_offset) || page.next_offset <= offset) throw new Error("Could not read the installed list.");
+    offset = page.next_offset;
+  }
   state.installed = new Map(items.map((i) => [i.address, i]));
 }
 

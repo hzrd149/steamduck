@@ -2,6 +2,8 @@ package kwakrpc
 
 import (
 	"context"
+	"encoding/hex"
+	"strings"
 	"time"
 )
 
@@ -40,10 +42,53 @@ type Descriptor struct {
 	Compatible        bool     `json:"compatible"`
 }
 
-// IconRef names a manifest icon by hash; napplet.icon serves its bytes.
+// IconRef names the manifest icon by its original content hash and MIME.
+// Native store responses add its NAP-RESOURCE Blossom reference.
 type IconRef struct {
-	SHA256 string `json:"sha256"`
-	Mime   string `json:"mime"`
+	SHA256   string             `json:"sha256"`
+	Mime     string             `json:"mime"`
+	Resource *ResourceReference `json:"resource,omitempty"`
+}
+
+type ResourceReference struct {
+	URL  string `json:"url"`
+	Mime string `json:"mime,omitempty"`
+}
+
+// IconResource emits BUD-10 and keeps the manifest's original hash and type.
+func (d Descriptor) IconResource() *ResourceReference {
+	if d.Icon == nil {
+		return nil
+	}
+	hash := d.Icon.SHA256
+	if len(hash) != 64 || hash != strings.ToLower(hash) {
+		return nil
+	}
+	if _, err := hex.DecodeString(hash); err != nil {
+		return nil
+	}
+	ext := "bin"
+	switch d.Icon.Mime {
+	case "image/png":
+		ext = "png"
+	case "image/jpeg":
+		ext = "jpg"
+	case "image/webp":
+		ext = "webp"
+	}
+	uri := "blossom:" + hash + "." + ext
+	parts := strings.SplitN(d.Address, ":", 3)
+	if len(parts) == 3 && len(parts[1]) == 64 && parts[1] == strings.ToLower(parts[1]) {
+		if _, err := hex.DecodeString(parts[1]); err == nil {
+			uri += "?as=" + parts[1]
+		}
+	}
+	return &ResourceReference{URL: uri, Mime: d.Icon.Mime}
+}
+
+func (c *Client) InstalledPage(ctx context.Context, offset, limit int) (*Page[InstalledItem], error) {
+	var page Page[InstalledItem]
+	return &page, c.Call(ctx, "napplet.installed", map[string]int{"offset": offset, "limit": limit}, &page)
 }
 
 // IsGame reports whether the napplet declares the "game" archetype.

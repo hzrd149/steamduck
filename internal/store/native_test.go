@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,7 +19,7 @@ func TestStoreDefinitionUsesApprovedAssets(t *testing.T) {
 	if d.SHA256 != hex.EncodeToString(sum[:]) || d.HTML != NappletPage() || d.Extensions[0].Prelude != SteamduckPrelude() {
 		t.Fatal("definition does not match embedded assets")
 	}
-	if len(d.Extensions[0].Routes) != 3 || d.Extensions[0].Routes[1].DeadlineMS != 180000 || d.Extensions[0].Routes[1].MaxResponseBytes != 8<<20 {
+	if len(d.Extensions[0].Routes) != 3 || d.Extensions[0].Routes[1].DeadlineMS != 180000 || d.Extensions[0].Routes[1].MaxResponseBytes != 262144 {
 		t.Fatal("incorrect native budgets")
 	}
 	if strings.Contains(d.HTML, "installSteamduckBinding") {
@@ -65,5 +67,85 @@ func TestNativeCancellationAndQuit(t *testing.T) {
 	response = api.HandleNative(context.Background(), kwakrpc.ExtensionRequest{Domain: "steamduck", Envelope: json.RawMessage(`{"type":"steamduck.request","id":"x","method":"quit"}`)})
 	if !response.Close || !strings.Contains(string(response.Envelope), `"result":null`) {
 		t.Fatal(string(response.Envelope))
+	}
+}
+
+// Exercise a daemon page larger than the custom transport cap. Metadata and
+// install state must survive, and the continuation must point after kept items.
+func TestNativeInstalledPageFitsWithoutImages(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "daemon.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	done := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			done <- err
+			return
+		}
+		defer conn.Close()
+		var request struct {
+			ID     json.RawMessage             `json:"id"`
+			Method string                      `json:"method"`
+			Params struct{ Offset, Limit int } `json:"params"`
+		}
+		err = json.NewDecoder(conn).Decode(&request)
+		if err != nil {
+			done <- err
+			return
+		}
+		items := make([]kwakrpc.InstalledItem, 4)
+		for i := range items {
+			items[i].Descriptor.Description = strings.Repeat("x", 100000)
+			items[i].Descriptor.Icon = &kwakrpc.IconRef{SHA256: strings.Repeat("a", 64), Mime: "image/png"}
+		}
+		done <- json.NewEncoder(conn).Encode(map[string]any{"id": request.ID, "result": kwakrpc.Page[kwakrpc.InstalledItem]{Items: items, Total: 14}})
+	}()
+	client, _ := kwakrpc.New(path)
+	defer client.Close()
+	api := &API{Client: client.WithoutRetry()}
+	response := api.HandleNative(context.Background(), kwakrpc.ExtensionRequest{Domain: "steamduck", Envelope: json.RawMessage(`{"type":"steamduck.request","id":"page","method":"installed","params":{"offset":10,"limit":4}}`)})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Result kwakrpc.Page[kwakrpc.InstalledItem] `json:"result"`
+		Error  any                                 `json:"error"`
+	}
+	if err := json.Unmarshal(response.Envelope, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != nil || len(response.Envelope) > nativeResponseLimit || len(result.Result.Items) != 2 || result.Result.Total != 14 || result.Result.NextOffset == nil || *result.Result.NextOffset != 12 {
+		t.Fatalf("incorrect bounded page: size=%d, items=%d, next=%v, error=%v", len(response.Envelope), len(result.Result.Items), result.Result.NextOffset, result.Error)
+	}
+	icon := result.Result.Items[0].Descriptor.Icon
+	if icon.Resource == nil || icon.Resource.URL != "blossom:"+icon.SHA256+".png" || strings.Contains(string(response.Envelope), "data:image") {
+		t.Fatal("missing resource reference or embedded image")
+	}
+}
+
+func TestProfileResourceReferences(t *testing.T) {
+	for _, raw := range []string{"data:image/png;base64,AAAA", "http://example.com/a.png", "file:///etc/passwd", "https://user:pass@example.com/a.png", strings.Repeat("x", 2049)} {
+		if profileResource(raw) != nil {
+			t.Fatalf("accepted unsafe reference: %q", raw)
+		}
+	}
+	ref := profileResource(" https://example.com/avatar.png ")
+	if ref == nil || ref.URL != "https://example.com/avatar.png" {
+		t.Fatal("lost profile reference")
+	}
+}
+
+func TestIconResourceUsesBUD10(t *testing.T) {
+	hash, author := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	for _, row := range []struct{ mime, extension string }{{"image/png", "png"}, {"image/jpeg", "jpg"}, {"image/webp", "webp"}, {"application/octet-stream", "bin"}} {
+		d := kwakrpc.Descriptor{Address: "35129:" + author + ":app", Icon: &kwakrpc.IconRef{SHA256: hash, Mime: row.mime}}
+		ref := d.IconResource()
+		if ref == nil || ref.URL != "blossom:"+hash+"."+row.extension+"?as="+author {
+			t.Fatalf("invalid BUD-10 icon ref: %#v", ref)
+		}
 	}
 }

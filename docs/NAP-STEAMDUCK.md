@@ -4,7 +4,7 @@ NAP-STEAMDUCK
 Trusted Steamduck Store Control
 ------------------------------
 
-`draft` · version `1` · JavaScript binding implemented; native adapter pending
+`draft` · version `1` · JavaScript binding and trusted native adapter implemented; physical Deck verification pending
 
 **NAP ID:** NAP-STEAMDUCK  
 **Domain:** `steamduck`  
@@ -114,16 +114,16 @@ its socket framing or streaming mechanisms part of NAP-STEAMDUCK.
 
 These preserve the existing store backend's behavior. Their names intentionally
 match the current `steamduckCall` method table. They are a separate namespace
-from `kwakore.call`; for example, store `installed` returns a complete array,
-while daemon `napplet.installed` returns a page.
+from `kwakore.call`. Large catalog, installed and social lists use daemon page
+schemas (`items`, `total`, `next_offset`); callers follow a non-null continuation.
 
 | Method | Parameters | Successful result |
 | --- | --- | --- |
 | `status` | none | Daemon `service.status` result. |
 | `discover` | optional `query`, `refresh`, `offset`, `limit`, `archetype`, `compatible` | Daemon `napplet.discover` result; default limit is 60. |
-| `installed` | none | Complete list of daemon `InstalledItem` records; empty list is `[]`. |
+| `installed` | optional `offset`, `limit` | Page of daemon `InstalledItem` records; default limit 60. |
 | `detail` | `address` | Daemon `napplet.detail` result. |
-| `icon` | `address` | PNG data URL, or empty string when unavailable. |
+| `icon` | `address` | `ResourceReference` for a cached icon, or null when unavailable. |
 | `install` | `address` | Daemon `napplet.install` result. |
 | `update` | `address` | null after update completes. |
 | `uninstall` | `address` | null after uninstall completes; this operation expresses confirmed uninstall intent. |
@@ -176,11 +176,30 @@ The direct Kwakore namespace remains the explicit route for broader control.
 | `ShortcutChanges` | optional `added`, `updated`, `removed` lists of text shortcut keys; required `app_ids` object mapping shortcut keys to unsigned 32-bit Steam app IDs. Omitted change lists mean no changes of that kind. |
 | `SignerView` | required `mode` (`none`, `nsec`, `bunker`, `system`), `public_key` text (hex or empty), `connection_state` text, `npub` text (or empty). No credentials. |
 | `PairOffer` | required `uri` text (`nostrconnect://`), `qr` text (PNG data URL), `relay` text. The URI and QR contain a one-time pairing secret. |
-| `Profile` | required `public_key`, `npub` text and `found` boolean; optional `name`, `display_name`, `about`, `website`, `nip05`, `lud16`, `picture`, `banner` text and `created_at` integer Unix seconds. Picture and banner are host-provided image data URLs. `found: false` means no usable metadata was found, not that the account does not exist. |
+| `Profile` | required `public_key`, `npub` text and `found` boolean; optional `name`, `display_name`, `about`, `website`, `nip05`, `lud16`, `created_at` integer Unix seconds and `picture`, `banner` resource references. Image bytes are fetched through NAP-RESOURCE. `found: false` means no usable metadata was found, not that the account does not exist. |
 | `ZapInvoice` | required `invoice` text (BOLT11), `qr` text (PNG data URL), `amount_msats` positive integer. |
 
 Absent optional fields MUST be tolerated. Collections MUST use empty arrays or
 objects rather than null unless their schema explicitly permits null.
+
+### Resource references and bounds
+
+`ResourceReference` is `{url: string, mime?: string}`. Catalog and detail icon
+metadata retain their hash and MIME and add `icon.resource`. Cached icons use
+`blossom:<64 lowercase hex hash>.<ext>`. RESOURCE checks locally cached original
+bytes against that hash, then fetches through Blossom with the built-in's normal
+fetch consent on a miss. Re-encoded desktop PNGs never stand in for differently
+hashed originals. Profile references
+use HTTPS. NAP-RESOURCE handles fetch consent, network policy and byte limits.
+The store renders bounded raster blobs and revokes object URLs at teardown.
+
+NAP-STEAMDUCK responses are limited to 262,144 bytes, including their envelope;
+the proposed 8 MiB allowance is unnecessary now that these images are removed.
+Convenience pages may return fewer records with an adjusted `next_offset` to
+fit this bound. An oversized individual record or non-page result fails explicitly.
+Direct daemon calls retain daemon schemas and fail on oversize; callers should
+request smaller pages. Pairing and invoice QR codes remain bounded ephemeral
+operation results rather than catalog/profile images.
 
 ## Wire protocol
 
@@ -306,7 +325,7 @@ An implementation is ready when these checks pass:
    message from another endpoint cannot perform a privileged operation.
 2. Reload and navigation invalidate the prior generation and its responses.
 3. Store convenience calls preserve existing UI results, including null successes,
-   complete installed lists, pairing QR codes, errors and deferred Steam sync.
+   paginated installed lists, pairing QR codes, errors and deferred Steam sync.
 4. Direct control calls preserve daemon schemas and validation; streaming and
    attached calls fail explicitly rather than hanging or exposing descriptors.
 5. Concurrent pairing/download requests leave catalog browsing and gamepad
@@ -320,12 +339,21 @@ An implementation is ready when these checks pass:
 
 The [runtime-injected binding](nap-steamduck-binding.md) implements the web API
 using Kwakore's private lexical extension transport. It is built separately from
-the app and embedded as `store.SteamduckPrelude()`. The native store registration
-and handler adapter are pending. The binding guide records the current runtime
-deadline and response-size limits that do not yet meet this full draft contract.
+the app and embedded as `store.SteamduckPrelude()`. Native registration and the
+handler are implemented in `internal/store/native.go` and `native_window.go`.
+The host broker owns the authenticated socket; the child receives only its
+Kwakore window protocol and approved extension routes.
 
 The migration source for native handlers is the existing
 [store dispatcher](../internal/store/api.go),
 [account operations](../internal/store/account.go) and
 [social operations](../internal/store/social.go). Their current webview and HTTP
-transports do not implement NAP-STEAMDUCK.
+transports remain available for compatibility testing.
+
+Blossom references follow [BUD-10](https://github.com/hzrd149/blossom/blob/master/buds/10.md):
+`blossom:<hash>.<ext>` with an explicit extension (`.bin` when unknown), repeated
+`xs` server and `as` author hints, and an optional positive `sz` size hint.
+The store includes the manifest publisher as an author hint. RESOURCE parses
+hints before resolution, tries explicit servers before BUD-03 author lists and
+fallback servers, and verifies content hash and advertised size. Kwakore retains
+its HTTPS-only network policy; HTTP fallback is not enabled.

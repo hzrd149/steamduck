@@ -25,18 +25,18 @@ async function setup(page: Page, withApp = false) {
         let result: unknown = null;
         if (message.type === "steamduck.info") result = metadata;
         else if (message.method === "status") result = { health: { ready: true, version: "real-binding" } };
-        else if (message.method === "installed") result = [{
+        else if (message.method === "installed") result = {items:[{
           address: "35129:" + "a".repeat(64) + ":demo", name: "Bound game",
           available: true, compatible: true, format: "napplet", update_available: null,
           version: {created_at: 1},
-        }];
+        }], total:1, next_offset:null};
         else if (message.method === "icon") result = "";
         else if (message.method === "sync") result = {deferred: true, shortcut_count: 1};
         port.postMessage({type: message.type + ".result", id: message.id, result});
       };
     });
   }, {withApp, metadata});
-  const document = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\'; style-src \'unsafe-inline\'; img-src data:">' +
+  const document = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\'; style-src \'unsafe-inline\'; img-src data: blob:">' +
     '<script>window.results = {}; window.napplet = {gamepad: {available:true, focused:true, getGamepads(){return []}}};</script>' +
     `<script>(function(){${extension}
 parent.postMessage({type:"__kwakore.document"},"*",[extensionChannel.port2]);

@@ -14,8 +14,8 @@ export default defineConfig(({ mode }) => ({
     nappletType: "steamduck-store",
     title: "Steamduck Store",
     description: "Discover, install and play napplets on Steam Deck with your Nostr account.",
-    requires: ["steamduck"],
-    optional: ["gamepad", "theme", "identity", "relay", "resource", "intent"],
+    requires: ["steamduck", "resource"],
+    optional: ["gamepad", "theme", "identity", "relay", "intent"],
     artifactMode: "single-file",
     icon: {
       data: readFileSync(new URL("./internal/store/web/logo.png", import.meta.url)),
