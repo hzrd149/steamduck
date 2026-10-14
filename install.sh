@@ -14,15 +14,19 @@ set -euo pipefail
 repo="hzrd149/steamduck"
 channel=""      # "" = latest release, else nightly; or a tag
 restart="ask"   # restart Steam so the new shortcuts show up: ask, yes, no
+modify_path="ask"  # add ~/.local/bin to PATH in the shell's startup file: ask, yes, no
 
 usage() {
 	cat <<'EOF'
 Usage: install.sh [--nightly | --version TAG] [--restart-steam | --no-restart-steam]
+                  [--modify-path | --no-modify-path]
 
   --nightly             install the rolling build of master
   --version TAG         install release TAG (such as v0.1.0)
   --restart-steam       restart Steam without asking, to show the shortcuts
   --no-restart-steam    leave Steam running; shortcuts appear after it restarts
+  --modify-path         add ~/.local/bin to PATH in your shell's startup file without asking
+  --no-modify-path      leave your shell's startup files alone
 
 Without --nightly or --version the latest release is installed, or the
 nightly build when there is no release yet.
@@ -35,10 +39,26 @@ while [ $# -gt 0 ]; do
 	--version) channel="${2:?--version needs a tag}"; shift 2 ;;
 	--restart-steam) restart="yes"; shift ;;
 	--no-restart-steam) restart="no"; shift ;;
+	--modify-path) modify_path="yes"; shift ;;
+	--no-modify-path) modify_path="no"; shift ;;
 	-h | --help) usage; exit 0 ;;
 	*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
 	esac
 done
+
+# ask QUESTION succeeds unless the user answers n. It reads the terminal,
+# because stdin is this script when it is piped from curl; with no
+# terminal the answer is no.
+ask() {
+	local answer
+	if { exec 3<>/dev/tty; } 2>/dev/null; then
+		printf '%s [Y/n] ' "$1" >&3
+		read -r answer <&3 || answer="n"
+		exec 3>&-
+		case "$answer" in [nN]*) return 1 ;; *) return 0 ;; esac
+	fi
+	return 1
+}
 
 say() { printf '\033[1;33m==>\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -108,10 +128,8 @@ say "checking the runtime"
 # Steam reads shortcuts.vdf only when it starts.
 if pgrep -x steam >/dev/null 2>&1; then
 	if [ "$restart" = ask ]; then
-		if [ -r /dev/tty ] && [ -w /dev/tty ]; then
-			printf 'Steam must restart to show napplets in your library. Restart Steam now? [Y/n] ' >/dev/tty
-			read -r answer </dev/tty || answer=""
-			case "$answer" in [nN]*) restart="no" ;; *) restart="yes" ;; esac
+		if ask "Steam must restart to show napplets in your library. Restart Steam now?"; then
+			restart="yes"
 		else
 			restart="no"
 		fi
@@ -126,6 +144,62 @@ else
 	"$steamduck" sync
 fi
 
+# Put ~/.local/bin (steamduck and kwak) on PATH for new terminals, in the
+# startup file of the user's shell. A marker line keeps reruns from adding
+# it twice.
+path_marker="# Added by the steamduck installer"
+add_to_path() {
+	local shell rc
+	shell=$(basename "${SHELL:-bash}")
+	case "$shell" in
+	fish)
+		rc="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/steamduck.fish"
+		if [ -f "$rc" ]; then
+			say "~/.local/bin is already added to PATH in $rc; open a new terminal to use it"
+			return 0
+		else
+			mkdir -p "$(dirname "$rc")"
+			cat >"$rc" <<'FISH'
+# Added by the steamduck installer
+contains -- $HOME/.local/bin $PATH; or set -gx PATH $HOME/.local/bin $PATH
+FISH
+		fi
+		;;
+	*)
+		if [ "$shell" = zsh ]; then rc="$HOME/.zshrc"; else rc="$HOME/.bashrc"; fi
+		if grep -qsF "$path_marker" "$rc"; then
+			say "~/.local/bin is already added to PATH in $rc; open a new terminal to use it"
+			return 0
+		else
+			cat >>"$rc" <<'SH'
+
+# Added by the steamduck installer
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
+SH
+		fi
+		;;
+	esac
+	say "added ~/.local/bin to PATH in $rc; it takes effect in new terminals"
+}
+
+case ":$PATH:" in
+*":$HOME/.local/bin:"*) ;;
+*)
+	if [ "$modify_path" = ask ]; then
+		if ask "Add ~/.local/bin to your PATH, so \"steamduck\" and \"kwak\" work in any terminal?"; then
+			modify_path="yes"
+		else
+			modify_path="no"
+		fi
+	fi
+	if [ "$modify_path" = yes ]; then
+		add_to_path
+	else
+		say "~/.local/bin is not on your PATH; run steamduck as $steamduck"
+	fi
+	;;
+esac
+
 cat <<EOF
 
 steamduck is installed.
@@ -137,7 +211,3 @@ steamduck is installed.
   - Update: run this installer again. Remove: steamduck uninstall
 
 EOF
-case ":$PATH:" in
-*":$HOME/.local/bin:"*) ;;
-*) echo "Note: ~/.local/bin is not on your PATH; use $steamduck or add it." ;;
-esac
