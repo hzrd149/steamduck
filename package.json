@@ -1,0 +1,23 @@
+{
+  "name": "steamduck-store",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --mode legacy",
+    "build": "vite build && vite build --mode legacy && npm run build:binding && node scripts/verify-store-build.mjs",
+    "build:binding": "vite build --config vite.binding.config.ts && node scripts/verify-store-binding.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "playwright test",
+    "check": "npm run typecheck && npm run build && npm test"
+  },
+  "engines": { "node": ">=22.12" },
+  "dependencies": { "@napplet/nap": "0.33.0" },
+  "devDependencies": {
+    "@napplet/vite-plugin": "0.16.0",
+    "@playwright/test": "1.64.0",
+    "@types/node": "24.10.1",
+    "parse5": "7.3.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7"
+  }
+}

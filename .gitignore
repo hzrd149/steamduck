@@ -1,3 +1,6 @@
 /steamduck
 /dist/
+/node_modules/
+/test-results/
+/playwright-report/
 /.claude/settings.local.json

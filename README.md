@@ -63,10 +63,52 @@ Configuration lives in `~/.config/steamduck/config.json`:
 
 ## Development
 
+### Nix development shell
+
+With [Nix](https://nixos.org/download/) installed, enter the pinned development
+environment on x86_64/aarch64 Linux or Apple Silicon macOS:
+
 ```sh
+nix develop
+npm ci
+just build
+just test
+```
+
+The shell provides Go 1.26, Node.js 24 (including npm), `just` and Git.
+`flake.lock` pins the tools for all contributors. If your Nix installation has
+not enabled flakes, use
+`nix --extra-experimental-features 'nix-command flakes' develop` instead.
+The first shell entry and `npm ci` need network access to fetch dependencies.
+You can also run commands directly, for example `nix develop -c just deck`
+to cross-build the Linux amd64 binary for a Steam Deck.
+
+The shell disables cgo, matching the release build. Running the native store
+window still requires a separately installed Kwakore runtime and its
+`libwebview.so`; browser development uses `just dev-store` with a running
+Kwakore daemon. Browser tests additionally need Playwright's Chromium and its
+host libraries; see [the store build guide](docs/store-napplet.md#verification).
+
+To intentionally update the pinned tools, run `nix flake update` and commit
+the resulting `flake.lock`.
+
+### Without Nix
+
+Install Go 1.26 or newer and Node.js 22.12 or newer (CI uses Node.js 24), then:
+
+```sh
+npm ci
+npm run build                         # rebuild the embedded store artifacts
 go test ./...
 go build -o steamduck ./cmd/steamduck
 ./steamduck store --serve 127.0.0.1:8080   # open the printed URL
 ```
 
 The store window uses the `libwebview.so` from the kwakore release, through purego, so building needs no cgo.
+
+The store frontend uses Vite and `@napplet/vite-plugin` to build a single HTML
+napplet. `dist/store/index.html` uses NAP-STEAMDUCK, optional NAP-GAMEPAD and
+NAP-THEME; it awaits Kwakore's trusted built-in/custom-domain integration. The
+current store window and browser development server use a separate compatibility
+build. See [the store build guide](docs/store-napplet.md) for artifacts, live
+development and sandbox tests.

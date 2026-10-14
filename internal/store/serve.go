@@ -4,51 +4,37 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
-	"embed"
-	"encoding/base64"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net"
 	"net/http"
-	"strings"
 )
 
-//go:embed web
-var webFS embed.FS
+// The checked-in artifacts are rebuilt with npm run build. The production
+// napplet is kept separate from the compatibility window/browser transport.
+//
+//go:embed built/napplet.html
+var nappletHTML string
 
-// Page returns the UI as one self-contained HTML document: the webview
-// loads it with SetHtml, so there is no server and no URL to reach it by.
-func Page() (string, error) {
-	read := func(name string) (string, error) {
-		b, err := webFS.ReadFile("web/" + name)
-		return string(b), err
-	}
-	html, err := read("index.html")
-	if err != nil {
-		return "", err
-	}
-	for _, name := range []string{"store.css", "account.css"} {
-		css, err := read(name)
-		if err != nil {
-			return "", err
-		}
-		html = strings.Replace(html, `<link rel="stylesheet" href="`+name+`">`, "<style>\n"+css+"</style>", 1)
-	}
-	for _, name := range []string{"store.js", "account.js"} {
-		js, err := read(name)
-		if err != nil {
-			return "", err
-		}
-		html = strings.Replace(html, `<script src="`+name+`"></script>`, "<script>\n"+js+"</script>", 1)
-	}
-	logo, err := webFS.ReadFile("web/logo.png")
-	if err != nil {
-		return "", err
-	}
-	html = strings.Replace(html, `src="logo.png"`, `src="data:image/png;base64,`+base64.StdEncoding.EncodeToString(logo)+`"`, 1)
-	return html, nil
-}
+//go:embed built/legacy.html
+var legacyHTML string
+
+//go:embed built/steamduck.js
+var steamduckPrelude string
+
+// SteamduckPrelude is runtime-owned code for injection into the authorized
+// built-in store's trusted preamble. It must never be added to ordinary napplets.
+func SteamduckPrelude() string { return steamduckPrelude }
+
+// NappletPage returns the single-file store for a trusted Kwakore built-in
+// session. Its host must provide NAP-STEAMDUCK before application scripts run.
+func NappletPage() string { return nappletHTML }
+
+// Page returns the compatibility build used until Kwakore can open the store
+// as a built-in napplet. It retains the native binding and loopback dev server.
+func Page() (string, error) { return legacyHTML, nil }
 
 // Serve runs the UI over HTTP on a loopback address for development in an
 // ordinary browser. Calls need the random token printed in the URL, so other

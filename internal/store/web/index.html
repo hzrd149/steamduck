@@ -4,8 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Steamduck Store</title>
-<link rel="stylesheet" href="store.css">
-<link rel="stylesheet" href="account.css">
+<meta name="description" content="Discover, install and play napplets on Steam Deck with your Nostr account.">
 </head>
 <body>
 <header>
@@ -21,6 +20,7 @@
 </header>
 
 <main>
+  <p id="runtime-unavailable" class="empty" role="alert" hidden></p>
   <section id="library" class="view" hidden>
     <div class="toolbar">
       <h1>Installed</h1>
@@ -224,7 +224,6 @@
   </button>
 </template>
 
-<script src="store.js"></script>
-<script src="account.js"></script>
+<script type="module" src="./main.ts"></script>
 </body>
 </html>

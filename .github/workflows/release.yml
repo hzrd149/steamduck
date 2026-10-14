@@ -35,6 +35,16 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: git diff --exit-code -- internal/store/built
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -114,6 +124,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod

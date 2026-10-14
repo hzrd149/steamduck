@@ -1,11 +1,12 @@
-"use strict";
+import { call } from "./api";
+import { $, toast, busy, button, confirmAction, focusFirst } from "./store.js";
 
 // ---- account: the player's social account ----
 //
 // Signed out, the tab offers the ways to sign in, each in its own modal.
 // Signed in, it shows the account's public profile and a sign out button.
 
-async function loadAccount() {
+export async function loadAccount() {
   const [signer, settings] = await Promise.all([call("signer.status"), call("settings.get")]);
   renderTheme(settings.theme);
   await renderAccount(signer);
@@ -122,7 +123,7 @@ function openModal(title, nodes, onClose) {
   focusFirst($("#account-modal"));
 }
 
-function closeModal() {
+export function closeModal() {
   if (!modalClose) return;
   const onClose = modalClose;
   modalClose = null;
@@ -133,7 +134,7 @@ function closeModal() {
   else focusFirst();
 }
 
-function modalOpen() {
+export function modalOpen() {
   return !$("#account-modal").hidden;
 }
 
@@ -322,24 +323,26 @@ function renderTheme(theme) {
 
 // ---- wiring ----
 
-for (const b of document.querySelectorAll("#acct-signin .option")) {
-  b.addEventListener("click", () => FLOWS[b.dataset.flow]());
-}
-const SIGN_OUT_CONFIRM = "Sign out? Open games close, and a saved key or login link is forgotten.";
-$("#signout").addEventListener("click", async (e) => {
-  const b = e.currentTarget;
-  if (await confirmAction(SIGN_OUT_CONFIRM)) busy(b, signOut);
-});
-$("#signout-offline").addEventListener("click", async (e) => {
-  const b = e.currentTarget;
-  if (await confirmAction(SIGN_OUT_CONFIRM)) busy(b, signOut);
-});
-$("#account-modal").addEventListener("click", (e) => {
-  if (e.target === e.currentTarget) closeModal();
-});
-for (const b of $("#theme").children) {
-  b.addEventListener("click", () => busy(b, async () => {
-    await call("settings.set", { field: "theme", value: b.dataset.value });
-    renderTheme(b.dataset.value);
-  }));
+export function initAccount() {
+  for (const b of document.querySelectorAll("#acct-signin .option")) {
+    b.addEventListener("click", () => FLOWS[b.dataset.flow]());
+  }
+  const SIGN_OUT_CONFIRM = "Sign out? Open games close, and a saved key or login link is forgotten.";
+  $("#signout").addEventListener("click", async (e) => {
+    const b = e.currentTarget;
+    if (await confirmAction(SIGN_OUT_CONFIRM)) busy(b, signOut);
+  });
+  $("#signout-offline").addEventListener("click", async (e) => {
+    const b = e.currentTarget;
+    if (await confirmAction(SIGN_OUT_CONFIRM)) busy(b, signOut);
+  });
+  $("#account-modal").addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) closeModal();
+  });
+  for (const b of $("#theme").children) {
+    b.addEventListener("click", () => busy(b, async () => {
+      await call("settings.set", { field: "theme", value: b.dataset.value });
+      renderTheme(b.dataset.value);
+    }));
+  }
 }

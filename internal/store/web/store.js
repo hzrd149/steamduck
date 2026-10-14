@@ -1,47 +1,12 @@
-"use strict";
-
-// ---- transport: the webview binding, or the development HTTP server ----
-
-const token = new URLSearchParams(location.hash.slice(1)).get("token");
-
-async function call(method, params) {
-  let reply;
-  if (typeof window.steamduckCall === "function") {
-    reply = await window.steamduckCall(method, params ?? null);
-  } else {
-    const res = await fetch("/api/" + method, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Steamduck-Token": token ?? "" },
-      body: JSON.stringify(params ?? null),
-    });
-    reply = await res.json();
-  }
-  if (reply.error) {
-    const err = new Error(describeError(reply.error));
-    err.code = reply.error.code;
-    throw err;
-  }
-  return reply.result;
-}
-
-function describeError(e) {
-  if (e.reason === "session_unavailable") return "kwakore has no display to open windows on. Run `steamduck doctor`.";
-  if (e.reason === "signer_unavailable") return "This needs you to be signed in. Sign in on the Account tab.";
-  if (e.reason === "not_zappable") return "The developer has no Lightning address that takes zaps.";
-  switch (e.code) {
-    case 1003: return "kwakore is busy with this napplet. Try again in a moment.";
-    case 1004: return "Unavailable: the relays or the kwakore service did not answer.";
-    case 1005: return "Already up to date.";
-    case 1008: return "Timed out. Check the Library to see whether it finished.";
-  }
-  return e.message || "Something went wrong";
-}
+import { call } from "./api";
+import { loadAccount, modalOpen, closeModal } from "./account.js";
+import { startController } from "./controller";
 
 // ---- small DOM helpers ----
 
-const $ = (sel) => document.querySelector(sel);
+export const $ = (sel) => document.querySelector(sel);
 let toastTimer;
-function toast(text, isError) {
+export function toast(text, isError) {
   const el = $("#toast");
   el.textContent = text;
   el.classList.toggle("error", !!isError);
@@ -50,7 +15,7 @@ function toast(text, isError) {
   toastTimer = setTimeout(() => (el.hidden = true), isError ? 6000 : 3000);
 }
 
-async function busy(button, fn) {
+export async function busy(button, fn) {
   button.disabled = true;
   button.classList.add("busy");
   try {
@@ -216,7 +181,7 @@ function showTab(name) {
 
 // confirm, when given, asks for a second press first. It runs before the
 // button turns busy: a disabled button would swallow that press.
-function button(label, cls, fn, confirm) {
+export function button(label, cls, fn, confirm) {
   const b = document.createElement("button");
   b.className = cls;
   b.textContent = label;
@@ -686,7 +651,7 @@ async function loadPermissions(item) {
 }
 
 // A second press on the same button confirms; anything else cancels.
-function confirmAction(text) {
+export function confirmAction(text) {
   toast(text + " Press again to confirm.");
   const target = document.activeElement;
   return new Promise((resolve) => {
@@ -720,7 +685,7 @@ function focusables(root) {
   return [...root.querySelectorAll("button, input, textarea")].filter((el) => !el.disabled && el.offsetParent !== null);
 }
 
-function focusFirst(root) {
+export function focusFirst(root) {
   const r = root || scope();
   const list = focusables(r);
   const first = list.find((el) => el.classList.contains("card")) ||
@@ -794,47 +759,6 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
 });
 
-// Standard-mapping gamepad: d-pad or left stick moves, A activates, B goes
-// back, L1/R1 switch tabs. Steam Input presents the Deck's controls as one.
-const pressed = new Set();
-let repeatAt = 0;
-function pollPads(t) {
-  const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : [];
-  const now = new Set();
-  for (const p of pads) {
-    const b = (i) => p.buttons[i]?.pressed;
-    const ax = p.axes[0] || 0, ay = p.axes[1] || 0;
-    if (b(14) || ax < -0.6) now.add("left");
-    if (b(15) || ax > 0.6) now.add("right");
-    if (b(12) || ay < -0.6) now.add("up");
-    if (b(13) || ay > 0.6) now.add("down");
-    if (b(0)) now.add("a");
-    if (b(1)) now.add("b");
-    if (b(4)) now.add("l1");
-    if (b(5)) now.add("r1");
-  }
-  for (const k of now) {
-    const fresh = !pressed.has(k);
-    const repeat = ["left", "right", "up", "down"].includes(k) && t > repeatAt;
-    if (!fresh && !repeat) continue;
-    if (["left", "right", "up", "down"].includes(k)) repeatAt = t + (fresh ? 380 : 120);
-    switch (k) {
-      case "left": move(-1, 0); break;
-      case "right": move(1, 0); break;
-      case "up": move(0, -1); break;
-      case "down": move(0, 1); break;
-      case "a": if (fresh) document.activeElement?.click(); break;
-      case "b": if (fresh) back(); break;
-      case "l1": if (fresh) cycleTab(-1); break;
-      case "r1": if (fresh) cycleTab(1); break;
-    }
-  }
-  pressed.clear();
-  for (const k of now) pressed.add(k);
-  requestAnimationFrame(pollPads);
-}
-requestAnimationFrame(pollPads);
-
 // ---- wiring ----
 
 for (const t of document.querySelectorAll(".tab")) t.addEventListener("click", () => showTab(t.dataset.tab));
@@ -898,10 +822,19 @@ async function refreshStatus() {
   }
 }
 
-refreshStatus();
-setInterval(refreshStatus, 15000);
-// account.js loads after this script, so start once both have run
-document.addEventListener("DOMContentLoaded", () => {
+export function startStore() {
+  refreshStatus();
+  const statusTimer = setInterval(refreshStatus, 15000);
+  const stopController = startController({
+    left: () => move(-1, 0), right: () => move(1, 0),
+    up: () => move(0, -1), down: () => move(0, 1),
+    a: () => document.activeElement?.click(), b: back,
+    l1: () => cycleTab(-1), r1: () => cycleTab(1),
+  });
+  window.addEventListener("pagehide", () => {
+    clearInterval(statusTimer);
+    stopController();
+  }, { once: true });
   const startTab = new URLSearchParams(location.hash.slice(1)).get("tab");
   showTab(TABS.includes(startTab) ? startTab : "library");
-});
+}
