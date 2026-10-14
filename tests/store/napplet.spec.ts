@@ -34,12 +34,25 @@ test("denied image fetching leaves a usable fallback without direct network acce
   expect(errors).toEqual([]);
 });
 
-async function openStore(page: Page, options: { missing?: boolean; version?: number; legacy?: boolean; identity?: boolean; icons?: boolean; paginated?: boolean; denyImages?: boolean } = {}) {
+test("the store supplies secure UUIDs when WebKit lacks randomUUID", async ({ page }) => {
+  const { frame, errors } = await openStore(page, { missingUUID: true });
+  await expect(frame.locator("#library-grid .card")).toHaveCount(1);
+  const ids = await frame.locator("body").evaluate(() =>
+    Array.from({ length: 100 }, () => crypto.randomUUID()));
+  expect(new Set(ids).size).toBe(ids.length);
+  for (const id of ids) {
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  }
+  expect(errors).toEqual([]);
+});
+
+async function openStore(page: Page, options: { missingUUID?: boolean; missing?: boolean; version?: number; legacy?: boolean; identity?: boolean; icons?: boolean; paginated?: boolean; denyImages?: boolean } = {}) {
   const errors: string[] = [];
   const requests: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/*", (route) => { requests.push(route.request().url()); return route.abort(); });
   const prelude = `
+    ${options.missingUUID ? 'Object.defineProperty(crypto, "randomUUID", {value: undefined, writable: true, configurable: true});' : ""}
     window.testKey = "a".repeat(64);
     window.testProfile = {displayName: "Duck player", name: "duck", about: "Deck life", picture: "https://example.com/avatar.png"};
     window.rawProfile = {display_name: "Duck player", name: "duck", about: "Deck life", lud06: "lnurl1keep", custom: {preserve: true}};

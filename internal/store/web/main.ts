@@ -1,3 +1,4 @@
+import "./crypto";
 import "./store.css";
 import "./account.css";
 import "./settings.css";
