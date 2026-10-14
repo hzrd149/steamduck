@@ -35,7 +35,7 @@ Usage:
   steamduck doctor [--json]
   steamduck store [--serve 127.0.0.1:PORT] [--debug]
   steamduck launch --napplet ADDRESS [--appid ID] [--try]
-  steamduck sync [--watch] [--force] [--json]
+  steamduck sync [--watch] [--force] [--restart-steam] [--json]
   steamduck shortcuts
   steamduck version
 
@@ -205,6 +205,7 @@ func runSync(ctx context.Context, log *slog.Logger, args []string) error {
 	watch := fs.Bool("watch", false, "keep running and sync after every install or uninstall")
 	force := fs.Bool("force", false, "write shortcuts.vdf even while Steam runs")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	restart := fs.Bool("restart-steam", false, "close Steam, write the shortcuts, then start Steam again")
 	_ = fs.Parse(args)
 
 	c, err := client()
@@ -232,6 +233,21 @@ func runSync(ctx context.Context, log *slog.Logger, args []string) error {
 	}
 	if *watch {
 		return s.Watch(ctx, report)
+	}
+	if *restart && steam.Running() {
+		log.Info("closing Steam to write shortcuts")
+		if err := steam.Shutdown(ctx); err != nil {
+			return err
+		}
+		defer func() {
+			if steam.InGameMode() {
+				return // the gamescope session starts Steam again itself
+			}
+			log.Info("starting Steam")
+			if err := steam.Start(); err != nil {
+				log.Error("start Steam", "err", err)
+			}
+		}()
 	}
 	res, err := s.Sync(ctx)
 	if err != nil {

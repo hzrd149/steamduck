@@ -4,13 +4,17 @@
 package steam
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"hash/crc32"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // Root returns the Steam installation directory. On SteamOS and most
@@ -104,3 +108,49 @@ func Running() bool {
 }
 
 func quote(s string) string { return fmt.Sprintf("%q", s) }
+
+// Shutdown asks the Steam client to exit and waits until it has, so
+// shortcuts.vdf can be written without Steam overwriting it.
+func Shutdown(ctx context.Context) error {
+	if !Running() {
+		return nil
+	}
+	if err := exec.CommandContext(ctx, "steam", "-shutdown").Start(); err != nil {
+		return fmt.Errorf("steam -shutdown: %w", err)
+	}
+	deadline := time.After(90 * time.Second)
+	for Running() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return errors.New("Steam did not exit within 90 seconds")
+		case <-time.After(time.Second):
+		}
+	}
+	// Steam may still be flushing its files right after the process ends
+	time.Sleep(2 * time.Second)
+	return nil
+}
+
+// InGameMode reports whether this is SteamOS's gamescope session, where
+// the session itself restarts Steam after it exits.
+func InGameMode() bool {
+	return os.Getenv("XDG_CURRENT_DESKTOP") == "gamescope" || os.Getenv("GAMESCOPE_WAYLAND_DISPLAY") != ""
+}
+
+// Start launches the Steam client detached from this process.
+func Start() error {
+	cmd := exec.Command("steam")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	devnull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	defer devnull.Close()
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = devnull, devnull, devnull
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
+}

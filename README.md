@@ -6,6 +6,18 @@ steamduck integrates the [kwakore](https://github.com/hzrd149/kwakore) napplet r
 2. **Store**: `steamduck store` is a controller-friendly webview app for discovering, installing, updating, launching and removing napplets. It talks to kwakore over its control socket (JSON-RPC, protocol v1).
 3. **Steam library**: installed napplets become non-Steam shortcuts with generated artwork, in a "Napplets" collection. They launch from the Steam UI in both game mode and desktop mode.
 
+## Install on a Steam Deck
+
+Switch to Desktop Mode, open Konsole and run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/hzrd149/steamduck/master/install.sh | bash
+```
+
+This installs the latest release, or the rolling `nightly` build of `master` while no release exists. To pick a build, add `-s -- --nightly` or `-s -- --version v0.1.0`. The installer checks every download against the release's `SHA256SUMS`. It needs no root and asks before restarting Steam to show the new shortcuts. Run it again to update.
+
+Releases are built by `.github/workflows/release.yml`. They contain the static `steamduck` binary and kwakore built from a pinned commit (kwakore has no releases of its own yet), along with kwakore's install helper. Pushes to `master` refresh the `nightly` prerelease and `v*` tags publish a release.
+
 ## How it fits together
 
 ```
