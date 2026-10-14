@@ -92,7 +92,11 @@ their actual injected presence:
   stops while unavailable or unfocused; buttons held across focus regain must
   be released before they can act. Keyboard and pointer navigation remain usable.
 - `theme`: the published `@napplet/nap/theme/sdk` helpers apply initial colors
-  and subsequent theme changes. No fonts or assets are fetched from the network.
+  and subsequent theme changes. `src/theme.ts` derives panels, muted text,
+  overlays and status colors from the host's background, text and primary
+  colors and sets `color-scheme`, so light and dark host themes stay legible.
+  Without a host theme the stylesheet follows `prefers-color-scheme`. No fonts
+  or assets are fetched from the network.
 
 - `identity`: the shell-user profile, follow and relay lists, badges, received
   zaps, mutes, blocks and public categorized lists. The Account tab takes an

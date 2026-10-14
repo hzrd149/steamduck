@@ -8,7 +8,7 @@
 .profile { background: var(--panel); border-radius: 16px; overflow: hidden; margin: 8px 0 20px; padding-bottom: 24px; }
 .profile-banner {
   height: 180px;
-  background: linear-gradient(120deg, #2a3a4d, #1b2633 55%, #3b2f12) center / cover no-repeat;
+  background: linear-gradient(120deg, var(--panel-2), var(--panel) 55%, var(--accent-soft)) center / cover no-repeat;
 }
 .profile-body { display: flex; align-items: flex-end; gap: 20px; padding: 0 26px; margin-top: -56px; }
 .avatar {

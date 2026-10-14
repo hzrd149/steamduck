@@ -235,6 +235,23 @@ test("the production HTML works in an opaque sandbox using injected NAP APIs", a
   expect(errors).toEqual([]);
 });
 
+test("host themes restyle panels, text and badges for light and dark schemes", async ({ page }) => {
+  const { frame, errors } = await openStore(page);
+  const card = frame.locator("#library-grid .card").first();
+  await expect(card).toHaveCount(1);
+  await expect(frame.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(frame.locator("html")).toHaveCSS("--panel", "#1e2e3e");
+  await frame.locator("body").evaluate(() => (window as any).testTheme({ colors: { background: "#ffffff", text: "#111111", primary: "#1f2937" } }));
+  await expect(frame.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(frame.locator("html")).toHaveCSS("color-scheme", "light");
+  await expect(frame.locator("html")).toHaveCSS("--panel", "#f3f3f3");
+  await expect(card).toHaveCSS("background-color", /rgb\((243, 243, 243|231, 231, 231)\)/);
+  await expect(card.locator(".name")).toHaveCSS("color", "rgb(17, 17, 17)");
+  await expect(frame.locator("header")).not.toHaveCSS("background-image", /20, 28, 37/);
+  await expect(frame.locator("html")).toHaveCSS("--accent-ink", "#f2f2f3");
+  expect(errors).toEqual([]);
+});
+
 test("a runtime without the private API gets an explicit unavailable view", async ({ page }) => {
   const { frame, errors, requests } = await openStore(page, { missing: true });
   await expect(frame.locator("#runtime-unavailable")).toHaveText("Open the store in a supported Steamduck runtime.");

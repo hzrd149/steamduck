@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { themeGet, themeOnChanged } from "@napplet/nap/theme/sdk";
-  import type { Theme } from "@napplet/nap/theme/types";
   import { requireStore } from "./api";
   import { initAccount } from "./account.js";
   import { initSettings } from "./settings";
   import { initStore, showTab, startStore } from "./store.js";
+  import { applyTheme } from "./theme";
   import { navigation, notification, runtimeStatus } from "./ui";
   import Catalog from "./views/Catalog.svelte";
   import FeatureScreens from "./views/FeatureScreens.svelte";
@@ -13,13 +13,6 @@
 
   let unavailable = $state("");
   let initialized = $state(false);
-  function applyTheme(theme: Theme) {
-    const style = document.documentElement.style;
-    for (const [key, value] of Object.entries({ bg: theme.colors.background, text: theme.colors.text, accent: theme.colors.primary, focus: theme.colors.primary })) {
-      style.setProperty(`--${key}`, value);
-    }
-  }
-
   onMount(() => {
     let closed = false;
     const disposers: Array<() => void> = [];
@@ -38,7 +31,7 @@
         disposers.push(initStore(), startStore());
         initialized = true;
         if (window.napplet?.theme) {
-          const subscription = themeOnChanged(applyTheme);
+          const subscription = themeOnChanged(theme => applyTheme(theme));
           disposers.push(() => subscription.close());
           void themeGet().then(theme => { if (!closed) applyTheme(theme); }).catch(() => {});
         }
