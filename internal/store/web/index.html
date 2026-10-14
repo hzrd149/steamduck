@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Steamduck Store</title>
 <link rel="stylesheet" href="store.css">
+<link rel="stylesheet" href="account.css">
 </head>
 <body>
 <header>
@@ -40,41 +41,60 @@
   </section>
 
   <section id="account" class="view" hidden>
-    <div class="panel">
-      <h2>Nostr signer</h2>
-      <p class="muted">Napplets use this key to sign in, post and send messages. Each one still asks before it signs anything.</p>
-      <div class="signer-state">
-        <span class="dot" id="signer-dot"></span>
-        <div>
-          <div id="signer-mode" class="signer-mode">Loading…</div>
-          <div id="signer-npub" class="mono muted"></div>
-        </div>
-      </div>
-      <div class="actions" id="signer-actions"></div>
+    <div id="acct-loading" class="acct-loading muted">Loading your account…</div>
 
-      <div id="pair" class="subpanel" hidden>
-        <img id="pair-qr" class="qr" alt="Pairing QR code">
-        <div>
-          <h3>Scan with your signer app</h3>
-          <p class="muted">Open a NIP-46 signer such as Amber or nsec.app on your phone and scan this code. The offer lasts two minutes.</p>
-          <p class="muted small">Relay: <span id="pair-relay"></span></p>
-          <div class="actions"><button id="pair-cancel" class="secondary">Cancel</button></div>
+    <div id="acct-profile" class="profile" hidden>
+      <div class="profile-banner" id="p-banner" aria-hidden="true"></div>
+      <div class="profile-body">
+        <span class="avatar" id="p-avatar" aria-hidden="true"></span>
+        <div class="profile-head">
+          <h1 id="p-name"></h1>
+          <div class="muted" id="p-handle"></div>
         </div>
+        <button id="signout" class="secondary">Sign out</button>
       </div>
-
-      <form id="secret-form" class="subpanel column" hidden>
-        <label for="secret-input" id="secret-label"></label>
-        <input id="secret-input" autocomplete="off" spellcheck="false">
-        <p class="muted small" id="secret-help"></p>
-        <div class="actions">
-          <button type="submit" class="primary" id="secret-submit">Connect</button>
-          <button type="button" class="secondary" id="secret-cancel">Cancel</button>
-        </div>
-      </form>
+      <p class="profile-about" id="p-about"></p>
+      <dl class="profile-facts" id="p-facts"></dl>
+      <p class="muted small" id="p-note" hidden></p>
     </div>
 
-    <div class="panel">
-      <h2>Napplet theme</h2>
+    <div id="acct-offline" class="panel" hidden>
+      <h2>Can't reach your account</h2>
+      <p class="muted">You're signed in, but the app that holds your key isn't answering. Steamduck keeps trying in the background. Open it on your phone or computer, or sign out and sign in another way.</p>
+      <div class="actions"><button id="signout-offline" class="secondary">Sign out</button></div>
+    </div>
+
+    <div id="acct-signin" class="signin" hidden>
+      <div class="signin-intro">
+        <h1>Sign in</h1>
+        <p class="muted">Your account lets games post scores, chat and save progress across devices. Each game still asks before it does anything with it.</p>
+      </div>
+      <div class="signin-options">
+        <button class="option" data-flow="phone">
+          <span class="option-icon" aria-hidden="true">📱</span>
+          <span class="option-title">Sign in with your phone</span>
+          <span class="option-sub muted">Scan a code with your signer app</span>
+        </button>
+        <button class="option" data-flow="link">
+          <span class="option-icon" aria-hidden="true">🔗</span>
+          <span class="option-title">Use a login link</span>
+          <span class="option-sub muted">Paste a bunker link from your signer</span>
+        </button>
+        <button class="option" data-flow="system">
+          <span class="option-icon" aria-hidden="true">💻</span>
+          <span class="option-title">Use this device's signer</span>
+          <span class="option-sub muted">A signer app already running here</span>
+        </button>
+        <button class="option" data-flow="key">
+          <span class="option-icon" aria-hidden="true">🔑</span>
+          <span class="option-title">Enter a private key</span>
+          <span class="option-sub muted">Stored on this device</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="panel settings">
+      <h2>Game theme</h2>
       <div class="segmented" id="theme">
         <button data-value="system">System</button>
         <button data-value="light">Light</button>
@@ -82,26 +102,111 @@
       </div>
     </div>
   </section>
-</main>
 
-<div id="detail" class="detail" hidden role="dialog" aria-modal="true" aria-labelledby="d-name">
-  <div class="detail-card">
-    <div class="detail-head">
-      <span id="d-icon" class="icon big" aria-hidden="true"></span>
-      <div>
-        <h2 id="d-name"></h2>
-        <div id="d-author" class="muted"></div>
-        <div id="d-tags" class="tags"></div>
+  <section id="napplet" class="napplet" hidden aria-labelledby="d-name">
+    <div class="hero">
+      <div class="hero-bg" id="d-bg" aria-hidden="true"></div>
+      <button id="d-back" class="back" aria-label="Back"><span aria-hidden="true">‹</span> Back</button>
+      <div class="hero-body">
+        <span id="d-icon" class="icon big" aria-hidden="true"></span>
+        <div class="hero-info">
+          <h1 id="d-name"></h1>
+          <div id="d-author" class="muted"></div>
+          <div id="d-tags" class="tags"></div>
+        </div>
+      </div>
+      <div class="hero-bar">
+        <div class="actions" id="d-actions"></div>
+        <div class="votes" id="d-votes">
+          <button data-vote="up" aria-pressed="false" title="Recommend"><span aria-hidden="true">👍</span> <span class="n">0</span></button>
+          <button data-vote="down" aria-pressed="false" title="Not recommended"><span aria-hidden="true">👎</span> <span class="n">0</span></button>
+        </div>
       </div>
     </div>
-    <p id="d-desc" class="desc"></p>
-    <dl id="d-meta" class="meta"></dl>
-    <div class="actions" id="d-actions"></div>
-    <div id="d-perms" class="perms" hidden>
-      <h3>Saved permissions</h3>
-      <div id="d-perm-list"></div>
+
+    <nav class="page-tabs" role="tablist">
+      <span class="hint" aria-hidden="true">L1</span>
+      <button class="ptab" data-ptab="overview" role="tab">Overview</button>
+      <button class="ptab" data-ptab="comments" role="tab">Comments <span class="count" id="n-comments"></span></button>
+      <button class="ptab" data-ptab="mentions" role="tab">Mentions <span class="count" id="n-mentions"></span></button>
+      <button class="ptab" data-ptab="zaps" role="tab">Zaps <span class="count" id="n-zaps"></span></button>
+      <button class="ptab" data-ptab="permissions" role="tab">Permissions</button>
+      <span class="hint" aria-hidden="true">R1</span>
+      <span class="sync muted small" id="d-sync"></span>
+    </nav>
+
+    <div class="ppanel overview" id="pt-overview">
+      <div>
+        <p id="d-desc" class="desc"></p>
+        <h3>Reactions</h3>
+        <div class="emoji" id="d-emoji"></div>
+        <div class="emoji pick" id="d-react"></div>
+        <h3>Share</h3>
+        <form id="share-form" class="composer">
+          <textarea id="share-text" rows="2" placeholder="Say something about it (optional)"></textarea>
+          <div class="actions"><button type="submit" class="secondary" id="share-submit">Share</button></div>
+        </form>
+      </div>
+      <dl id="d-meta" class="meta side"></dl>
     </div>
-    <div class="footer-hint"><span class="hint">B</span> Back</div>
+
+    <div class="ppanel" id="pt-comments" hidden>
+      <form id="comment-form" class="composer">
+        <div class="replying" id="replying" hidden>Replying to <b id="replying-to"></b> <button type="button" class="link" id="reply-cancel">Cancel</button></div>
+        <textarea id="comment-text" rows="3" placeholder="Write a comment"></textarea>
+        <div class="actions"><button type="submit" class="primary" id="comment-submit">Post</button></div>
+      </form>
+      <div class="feed" id="comment-list"></div>
+      <p class="empty" id="comment-empty" hidden>No comments yet.</p>
+      <button class="secondary more" id="comment-more" hidden>Load more</button>
+    </div>
+
+    <div class="ppanel" id="pt-mentions" hidden>
+      <div class="feed" id="mention-list"></div>
+      <p class="empty" id="mention-empty" hidden>Nobody has mentioned it yet.</p>
+      <button class="secondary more" id="mention-more" hidden>Load more</button>
+    </div>
+
+    <div class="ppanel" id="pt-zaps" hidden>
+      <div class="panel zap-panel">
+        <div class="zap-total"><span id="zap-total">0</span> sats from <span id="zap-count">0</span> zaps</div>
+        <p class="muted small" id="zap-note">Zap the author with sats. Pay the invoice with a Lightning wallet on your phone.</p>
+        <div class="segmented" id="zap-amounts">
+          <button data-sats="21">21</button>
+          <button data-sats="100">100</button>
+          <button data-sats="500">500</button>
+          <button data-sats="1000">1k</button>
+          <button data-sats="5000">5k</button>
+        </div>
+        <input id="zap-comment" placeholder="Message (optional)" autocomplete="off">
+        <div class="actions"><button class="primary" id="zap-submit">Zap</button></div>
+        <div id="zap-invoice" class="subpanel" hidden>
+          <img id="zap-qr" class="qr" alt="Lightning invoice QR code">
+          <div>
+            <h3>Scan to pay <span id="zap-amount"></span> sats</h3>
+            <p class="muted">Open a Lightning wallet on your phone and scan this code. The zap shows up here once it is paid.</p>
+            <p class="mono muted small" id="zap-bolt11"></p>
+            <div class="actions"><button class="secondary" id="zap-done">Done</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="feed" id="zap-list"></div>
+      <button class="secondary more" id="zap-more" hidden>Load more</button>
+    </div>
+
+    <div class="ppanel" id="pt-permissions" hidden>
+      <p class="muted" id="perm-intro">Answers this napplet saved when it asked. Forget one and it asks again next time.</p>
+      <div id="d-perm-list"></div>
+      <p class="empty" id="perm-empty" hidden>No saved answers.</p>
+      <dl id="d-domains" class="meta"></dl>
+    </div>
+  </section>
+</main>
+
+<div id="account-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="m-title">
+  <div class="modal-card">
+    <h2 id="m-title"></h2>
+    <div id="m-body"></div>
   </div>
 </div>
 
@@ -117,5 +222,6 @@
 </template>
 
 <script src="store.js"></script>
+<script src="account.js"></script>
 </body>
 </html>

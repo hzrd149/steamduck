@@ -26,7 +26,8 @@ async function call(method, params) {
 
 function describeError(e) {
   if (e.reason === "session_unavailable") return "kwakore has no display to open windows on. Run `steamduck doctor`.";
-  if (e.reason === "signer_unavailable") return "This needs a Nostr signer. Set one up in Account.";
+  if (e.reason === "signer_unavailable") return "This needs you to be signed in. Sign in on the Account tab.";
+  if (e.reason === "not_zappable") return "The developer has no Lightning address that takes zaps.";
   switch (e.code) {
     case 1003: return "kwakore is busy with this napplet. Try again in a moment.";
     case 1004: return "Unavailable: the relays or the kwakore service did not answer.";
@@ -63,25 +64,66 @@ async function busy(button, fn) {
 }
 
 // Icons load lazily and are cached for the session. Until one arrives, or
-// when a napplet has none, the tile shows the name's first letter.
+// when a napplet has none, the tile shows the name's first letter. The
+// promise gives the data URL, or "" for none.
 const iconCache = new Map();
 function loadIcon(el, item) {
   el.textContent = [...(item.name || "?").trim()][0]?.toUpperCase() || "?";
   el.style.backgroundImage = "";
   el.classList.remove("has-image");
-  if (!item.icon) return;
+  if (!item.icon) return Promise.resolve("");
   let p = iconCache.get(item.address);
   if (!p) {
     p = call("icon", { address: item.address }).catch(() => "");
     iconCache.set(item.address, p);
   }
-  p.then((url) => {
+  return p.then((url) => {
     // data: URLs from the daemon's verified PNGs only
-    if (url && url.startsWith("data:image/png;base64,")) {
-      el.style.backgroundImage = `url("${url}")`;
-      el.classList.add("has-image");
-    }
+    if (!url || !url.startsWith("data:image/png;base64,")) return "";
+    el.style.backgroundImage = `url("${url}")`;
+    el.classList.add("has-image");
+    return url;
   });
+}
+
+function shortNpub(hex) {
+  return /^[0-9a-f]{64}$/.test(hex) ? npub(hex).slice(0, 14) + "…" : "";
+}
+
+// NIP-19 npub: bech32 of the 32-byte public key.
+const BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+function npub(hex) {
+  const data = [];
+  let acc = 0, bits = 0;
+  for (const h of hex.match(/../g)) {
+    acc = ((acc << 8) | parseInt(h, 16)) & 0x1fff;
+    bits += 8;
+    while (bits >= 5) { bits -= 5; data.push((acc >> bits) & 31); }
+  }
+  if (bits) data.push((acc << (5 - bits)) & 31);
+  const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+  let chk = 1;
+  for (const v of [3, 3, 3, 3, 0, 14, 16, 21, 2, ...data, 0, 0, 0, 0, 0, 0]) { // "npub" expanded
+    const top = chk >>> 25;
+    chk = ((chk & 0x1ffffff) << 5) ^ v;
+    for (let i = 0; i < 5; i++) if ((top >> i) & 1) chk ^= GEN[i];
+  }
+  chk ^= 1;
+  for (let i = 0; i < 6; i++) data.push((chk >>> (5 * (5 - i))) & 31);
+  return "npub1" + data.map((d) => BECH32[d]).join("");
+}
+
+function sats(msats) {
+  return Math.floor(msats / 1000).toLocaleString();
+}
+
+function ago(ts) {
+  const s = Date.now() / 1000 - ts;
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  if (s < 7 * 86400) return Math.floor(s / 86400) + "d ago";
+  return new Date(ts * 1000).toLocaleDateString();
 }
 
 function nameOf(item) {
@@ -124,6 +166,7 @@ function renderCards(grid, items, opts) {
       badge.classList.add("installed");
       badge.hidden = false;
     }
+    card.dataset.address = item.address;
     card.addEventListener("click", () => openDetail(item));
     grid.append(card);
   }
@@ -161,6 +204,7 @@ async function loadDiscover(append, refresh) {
 }
 
 function showTab(name) {
+  if (pageOpen()) hidePage();
   state.tab = name;
   for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t.dataset.tab === name));
   for (const v of TABS) $("#" + v).hidden = name !== v;
@@ -168,10 +212,7 @@ function showTab(name) {
   load.catch((err) => toast(err.message, true)).finally(() => focusFirst());
 }
 
-// ---- detail dialog ----
-
-let detailItem = null;
-let detailReturnFocus = null;
+// ---- napplet page: a full view like Steam's game page ----
 
 // confirm, when given, asks for a second press first. It runs before the
 // button turns busy: a disabled button would swallow that press.
@@ -186,14 +227,32 @@ function button(label, cls, fn, confirm) {
   return b;
 }
 
-async function openDetail(item) {
-  detailItem = item;
-  detailReturnFocus = document.activeElement;
-  $("#d-name").textContent = nameOf(item);
-  $("#d-author").textContent = item.author_name ? "by " + item.author_name : (item.author ? "by " + item.author : "");
-  $("#d-desc").textContent = item.description || "";
-  loadIcon($("#d-icon"), item);
+const PTABS = ["overview", "comments", "mentions", "zaps", "permissions"];
 
+const page = {
+  item: null,
+  tab: "overview",
+  social: null,
+  scroll: 0,
+  replyTo: null,
+  offsets: {},
+};
+
+const pageOpen = () => !$("#napplet").hidden;
+
+async function openDetail(item) {
+  Object.assign(page, { item, social: null, scroll: $("main").scrollTop, replyTo: null, offsets: {} });
+  for (const v of TABS) $("#" + v).hidden = true;
+  $("#napplet").hidden = false;
+  $("main").scrollTop = 0;
+
+  $("#d-name").textContent = nameOf(item);
+  $("#d-author").textContent = item.author_name ? "by " + item.author_name : (item.author ? "by " + shortNpub(item.author) : "");
+  $("#d-desc").textContent = item.description || "";
+  $("#d-bg").style.backgroundImage = "";
+  loadIcon($("#d-icon"), item).then((url) => {
+    if (url && page.item === item) $("#d-bg").style.backgroundImage = `url("${url}")`;
+  });
   const tags = $("#d-tags");
   tags.replaceChildren();
   for (const t of item.archetypes || []) {
@@ -201,6 +260,48 @@ async function openDetail(item) {
     s.textContent = t;
     tags.append(s);
   }
+  renderMeta(item);
+
+  for (const id of ["#comment-list", "#mention-list", "#zap-list", "#d-perm-list", "#d-emoji"]) $(id).replaceChildren();
+  for (const id of ["#n-comments", "#n-mentions", "#n-zaps"]) $(id).textContent = "";
+  $("#comment-text").value = $("#share-text").value = $("#zap-comment").value = "";
+  cancelReply();
+  hideZapInvoice();
+  renderSocial(null);
+  renderActions();
+  showPageTab("overview");
+  focusFirst();
+  loadSocial(item);
+}
+
+function closeDetail() {
+  const address = page.item?.address;
+  hidePage();
+  $("#" + state.tab).hidden = false;
+  $("main").scrollTop = page.scroll;
+  const card = [...document.querySelectorAll("#" + state.tab + " .card")].find((c) => c.dataset.address === address);
+  if (card) card.focus({ preventScroll: true });
+  else focusFirst();
+}
+
+function hidePage() {
+  $("#napplet").hidden = true;
+  page.item = null;
+}
+
+function showPageTab(name) {
+  page.tab = name;
+  for (const t of document.querySelectorAll(".ptab")) t.setAttribute("aria-selected", String(t.dataset.ptab === name));
+  for (const t of PTABS) $("#pt-" + t).hidden = t !== name;
+  const load = LISTS[name] ? loadList(name) : name === "permissions" ? loadPermissions(page.item) : null;
+  load?.catch((err) => toast(err.message, true));
+}
+
+function visiblePtabs() {
+  return PTABS.filter((t) => !$(`.ptab[data-ptab="${t}"]`).hidden);
+}
+
+function renderMeta(item) {
   const meta = $("#d-meta");
   meta.replaceChildren();
   const row = (k, v) => {
@@ -211,16 +312,314 @@ async function openDetail(item) {
     dd.textContent = v;
     meta.append(dt, dd);
   };
+  row("Developer", item.author_name || shortNpub(item.author || ""));
   if (item.version?.created_at) row("Published", new Date(item.version.created_at * 1000).toLocaleDateString());
   row("Needs", (item.required_domains || []).join(", "));
   if (item.missing_domains?.length) row("Unsupported", item.missing_domains.join(", "));
   row("Address", item.address);
+}
 
-  renderActions();
-  $("#d-perms").hidden = true;
-  if (state.installed.has(item.address)) loadPermissions(item);
-  $("#detail").hidden = false;
-  focusFirst($("#detail"));
+function renderActions() {
+  const item = page.item;
+  const installed = state.installed.get(item.address);
+  $('.ptab[data-ptab="permissions"]').hidden = !installed;
+  if (!installed && page.tab === "permissions") showPageTab("overview");
+  const actions = $("#d-actions");
+  actions.replaceChildren();
+  if (installed) {
+    actions.append(button("Play", "primary", async () => {
+      await call("launch", { address: item.address });
+      toast("Opening " + (item.name || "napplet") + "…");
+    }));
+    if (installed.update_available) {
+      actions.append(button("Update", "secondary", async () => {
+        await call("update", { address: item.address });
+        toast("Updated");
+        await loadLibrary();
+        renderActions();
+        focusFirst();
+      }));
+    }
+    actions.append(button("Uninstall", "danger", async () => {
+      await call("uninstall", { address: item.address });
+      toast("Uninstalled");
+      await loadLibrary();
+      if (state.tab === "discover") renderCards($("#discover-grid"), state.discover, { library: false });
+      renderActions();
+      focusFirst();
+    }, "Uninstall " + (item.name || "this napplet") + "? Its saved data is removed."));
+  } else {
+    const install = button("Install", "primary", async () => {
+      await call("install", { address: item.address });
+      toast("Installed " + (item.name || "napplet"));
+      await loadLibrary();
+      if (state.tab === "discover") renderCards($("#discover-grid"), state.discover, { library: false });
+      renderActions();
+      focusFirst();
+    });
+    install.disabled = item.available === false;
+    actions.append(install);
+    actions.append(button("Try without installing", "secondary", async () => {
+      await call("try", { address: item.address });
+      toast("Opening a trial…");
+    }));
+  }
+}
+
+// ---- social: votes, reactions, comments, mentions, zaps ----
+
+// Held data shows at once; a relay refresh follows and updates the page.
+async function loadSocial(item) {
+  $("#d-sync").textContent = "";
+  try {
+    renderSocial(await call("napplet.social", { address: item.address }));
+  } catch {
+    return;
+  }
+  if (page.item !== item) return;
+  $("#d-sync").textContent = "Checking relays…";
+  const before = page.social;
+  try {
+    const s = await call("napplet.social", { address: item.address, refresh: true });
+    if (page.item !== item) return;
+    renderSocial(s);
+    $("#d-sync").textContent = "";
+    const changed = { comments: s.comments.count !== before.comments.count, mentions: s.mentions.count !== before.mentions.count, zaps: s.zaps.count !== before.zaps.count };
+    if (changed[page.tab]) loadList(page.tab).catch(() => {});
+  } catch {
+    if (page.item === item) $("#d-sync").textContent = "Relays did not answer";
+  }
+}
+
+async function reloadSocial() {
+  const item = page.item;
+  const s = await call("napplet.social", { address: item.address });
+  if (page.item === item) renderSocial(s);
+}
+
+const REACT_EMOJI = ["❤️", "🔥", "😂", "🎮", "🦆", "🚀"];
+
+function renderSocial(s) {
+  page.social = s;
+  const own = s?.own;
+  for (const b of $("#d-votes").children) {
+    b.querySelector(".n").textContent = s ? s.votes[b.dataset.vote] : "–";
+    b.setAttribute("aria-pressed", String(own?.vote === b.dataset.vote));
+  }
+  if (!s) return;
+  const count = (n) => (n ? String(n) : "");
+  $("#n-comments").textContent = count(s.comments.count);
+  $("#n-mentions").textContent = count(s.mentions.count);
+  $("#n-zaps").textContent = count(s.zaps.count);
+  $("#zap-total").textContent = sats(s.zaps.total_msats);
+  $("#zap-count").textContent = s.zaps.count;
+
+  // everyone's emoji, then a picker; pressing one of your own takes it back
+  const mine = new Map((own?.reactions || []).map((r) => [r.content, r]));
+  const chip = (content, n, url) => {
+    const b = document.createElement("button");
+    b.className = "chip";
+    b.setAttribute("aria-pressed", String(mine.has(content)));
+    b.textContent = n ? content + " " + n : content;
+    b.addEventListener("click", () => busy(b, () => toggleReaction(content, url)));
+    return b;
+  };
+  $("#d-emoji").replaceChildren(...s.emoji.map((e) => chip(e.content, e.count, e.url)));
+  if (!s.emoji.length) {
+    const p = document.createElement("span");
+    p.className = "muted";
+    p.textContent = "No reactions yet.";
+    $("#d-emoji").append(p);
+  }
+  $("#d-react").replaceChildren(...REACT_EMOJI.filter((e) => !s.emoji.some((x) => x.content === e)).map((e) => chip(e)));
+}
+
+async function vote(dir) {
+  const v = page.social?.own?.vote === dir ? "none" : dir;
+  const r = await call("napplet.vote", { address: page.item.address, vote: v });
+  if (r.outcome === "published" && r.published === 0) toast("Saved, but no relay took it", true);
+  await reloadSocial();
+}
+
+async function toggleReaction(content, url) {
+  const address = page.item.address;
+  const own = (page.social?.own?.reactions || []).find((r) => r.content === content);
+  if (own) {
+    await call("napplet.delete", { address, event_id: own.id });
+  } else {
+    const p = { address, emoji: content };
+    if (url) p.emoji_url = url;
+    published(await call("napplet.react", p), "Reacted " + content);
+  }
+  await reloadSocial();
+}
+
+function published(r, text) {
+  if (r.published === 0) toast("Saved, but no relay took it", true);
+  else toast(text);
+}
+
+// Lists page through kwakore's held events, newest first.
+const LISTS = {
+  comments: { method: "napplet.comments", el: "#comment-list", empty: "#comment-empty", more: "#comment-more", render: renderComment },
+  mentions: { method: "napplet.mentions", el: "#mention-list", empty: "#mention-empty", more: "#mention-more", render: renderMention },
+  zaps: { method: "napplet.zaps", el: "#zap-list", more: "#zap-more", render: renderZap },
+};
+
+async function loadList(name, append) {
+  const l = LISTS[name];
+  const item = page.item;
+  const params = { address: item.address, limit: 30 };
+  if (append) params.offset = page.offsets[name];
+  const res = await call(l.method, params);
+  if (page.item !== item) return;
+  const box = $(l.el);
+  if (!append) box.replaceChildren();
+  for (const it of res.items || []) box.append(l.render(it));
+  page.offsets[name] = res.next_offset;
+  $(l.more).hidden = res.next_offset == null;
+  if (l.empty) $(l.empty).hidden = box.children.length > 0;
+}
+
+function post(author, name, createdAt, content) {
+  const el = document.createElement("article");
+  el.className = "post";
+  const head = document.createElement("div");
+  head.className = "post-head";
+  const who = document.createElement("b");
+  who.textContent = name || shortNpub(author);
+  const when = document.createElement("span");
+  when.className = "muted small";
+  when.textContent = ago(createdAt);
+  head.append(who, when);
+  const body = document.createElement("p");
+  body.className = "post-body";
+  body.textContent = content;
+  el.append(head, body);
+  return el;
+}
+
+function renderComment(c) {
+  const el = post(c.author, c.author_name, c.created_at, c.content + (c.truncated ? "…" : ""));
+  const actions = document.createElement("div");
+  actions.className = "post-actions";
+  actions.append(button("Reply", "link", async () => startReply(c)));
+  const replies = document.createElement("div");
+  replies.className = "replies";
+  if (c.reply_count) {
+    const show = button(c.reply_count === 1 ? "Show 1 reply" : `Show ${c.reply_count} replies`, "link", async () => {
+      const res = await call("napplet.comments", { address: page.item.address, parent_id: c.id, limit: 100 });
+      replies.replaceChildren(...(res.items || []).map(renderComment));
+      show.remove();
+      replies.querySelector("button")?.focus();
+    });
+    actions.append(show);
+  }
+  if (c.own) {
+    actions.append(button("Delete", "link bad", async () => {
+      await call("napplet.delete", { address: page.item.address, event_id: c.id });
+      const next = el.nextElementSibling || el.previousElementSibling;
+      el.remove();
+      (next?.querySelector("button") || $("#comment-text")).focus();
+      toast("Comment deleted");
+      await reloadSocial();
+    }, "Delete your comment?"));
+  }
+  el.append(actions, replies);
+  return el;
+}
+
+function renderMention(m) {
+  const el = post(m.author, m.author_name, m.created_at, m.content + (m.truncated ? "…" : ""));
+  if (m.quote) {
+    const q = document.createElement("span");
+    q.className = "pill";
+    q.textContent = "Quote";
+    el.querySelector(".post-head").append(q);
+  }
+  return el;
+}
+
+function renderZap(z) {
+  const el = post(z.sender, z.sender_name, z.created_at, z.comment);
+  const amount = document.createElement("span");
+  amount.className = "pill zap";
+  amount.textContent = "⚡ " + sats(z.amount_msats);
+  el.querySelector(".post-head").append(amount);
+  if (!z.comment) el.querySelector(".post-body").remove();
+  return el;
+}
+
+function startReply(c) {
+  page.replyTo = c;
+  $("#replying-to").textContent = c.author_name || shortNpub(c.author);
+  $("#replying").hidden = false;
+  $("#comment-text").focus();
+  $("#comment-form").scrollIntoView({ block: "nearest" });
+}
+
+function cancelReply() {
+  page.replyTo = null;
+  $("#replying").hidden = true;
+}
+
+async function submitComment() {
+  const content = $("#comment-text").value.trim();
+  if (!content) throw new Error("Write a comment first");
+  const p = { address: page.item.address, content };
+  if (page.replyTo) p.parent_id = page.replyTo.id;
+  published(await call("napplet.comment", p), page.replyTo ? "Reply posted" : "Comment posted");
+  $("#comment-text").value = "";
+  cancelReply();
+  await loadList("comments");
+  await reloadSocial();
+}
+
+async function submitShare() {
+  const p = { address: page.item.address };
+  const content = $("#share-text").value.trim();
+  if (content) p.content = content;
+  published(await call("napplet.share", p), "Shared");
+  $("#share-text").value = "";
+  await reloadSocial();
+}
+
+// kwakore has no wallet: it asks the author's provider for an invoice, and
+// a phone wallet pays it from the QR code.
+let zapSats = 100;
+function renderZapAmount() {
+  for (const b of $("#zap-amounts").children) b.setAttribute("aria-pressed", String(Number(b.dataset.sats) === zapSats));
+}
+
+async function requestZap() {
+  const p = { address: page.item.address, amount_msats: zapSats * 1000 };
+  const comment = $("#zap-comment").value.trim();
+  if (comment) p.comment = comment;
+  const z = await call("napplet.zap", p);
+  $("#zap-qr").src = z.qr;
+  $("#zap-amount").textContent = sats(z.amount_msats);
+  $("#zap-bolt11").textContent = z.invoice;
+  $("#zap-invoice").hidden = false;
+  $("#zap-done").focus();
+  $("#zap-invoice").scrollIntoView({ block: "nearest" });
+}
+
+function hideZapInvoice() {
+  if ($("#zap-invoice").hidden) return;
+  $("#zap-invoice").hidden = true;
+  $("#zap-qr").removeAttribute("src");
+  $("#zap-comment").value = "";
+  $("#zap-submit").focus();
+}
+
+// After paying, ask relays for the new receipt.
+async function zapDone() {
+  hideZapInvoice();
+  const item = page.item;
+  const s = await call("napplet.social", { address: item.address, refresh: true, categories: ["zaps"] });
+  if (page.item !== item) return;
+  renderSocial(s);
+  await loadList("zaps");
 }
 
 const PERMISSION_LABEL = {
@@ -232,13 +631,8 @@ const PERMISSION_LABEL = {
 // Saved allow/deny answers for an installed napplet. Forgetting one makes
 // the napplet ask again next time.
 async function loadPermissions(item) {
-  let res;
-  try {
-    res = await call("permissions.get", { address: item.address });
-  } catch {
-    return;
-  }
-  if (detailItem !== item) return;
+  const res = await call("permissions.get", { address: item.address });
+  if (page.item !== item) return;
   const list = $("#d-perm-list");
   list.replaceChildren();
   for (const rule of res.saved_rules) {
@@ -254,57 +648,24 @@ async function loadPermissions(item) {
       await call("permissions.clear", { address: item.address, ...rule });
       const next = (row.nextElementSibling || row.previousElementSibling)?.querySelector("button");
       row.remove();
-      $("#d-perms").hidden = list.children.length === 0;
+      $("#perm-empty").hidden = list.children.length > 0;
       if (next) next.focus();
-      else focusFirst($("#detail"));
+      else $('.ptab[data-ptab="permissions"]').focus();
       toast("It will ask again next time");
     });
     row.append(what, decision, forget);
     list.append(row);
   }
-  $("#d-perms").hidden = res.saved_rules.length === 0;
-}
-
-function renderActions() {
-  const item = detailItem;
-  const installed = state.installed.get(item.address);
-  const actions = $("#d-actions");
-  actions.replaceChildren();
-  if (installed) {
-    actions.append(button("Play", "primary", async () => {
-      await call("launch", { address: item.address });
-      toast("Opening " + (item.name || "napplet") + "…");
-    }));
-    if (installed.update_available) {
-      actions.append(button("Update", "secondary", async () => {
-        await call("update", { address: item.address });
-        toast("Updated");
-        await loadLibrary();
-        renderActions();
-      }));
-    }
-    actions.append(button("Uninstall", "danger", async () => {
-      await call("uninstall", { address: item.address });
-      toast("Uninstalled");
-      await loadLibrary();
-      if (state.tab === "discover") renderCards($("#discover-grid"), state.discover, { library: false });
-      closeDetail();
-    }, "Uninstall " + (item.name || "this napplet") + "? Its saved data is removed."));
-  } else {
-    const install = button("Install", "primary", async () => {
-      await call("install", { address: item.address });
-      toast("Installed " + (item.name || "napplet"));
-      await loadLibrary();
-      if (state.tab === "discover") renderCards($("#discover-grid"), state.discover, { library: false });
-      renderActions();
-      focusFirst($("#detail"));
-    });
-    install.disabled = item.available === false;
-    actions.append(install);
-    actions.append(button("Try without installing", "secondary", async () => {
-      await call("try", { address: item.address });
-      toast("Opening a trial…");
-    }));
+  $("#perm-empty").hidden = res.saved_rules.length > 0;
+  const domains = $("#d-domains");
+  domains.replaceChildren();
+  for (const [k, v] of [["Uses", res.required_domains], ["May use", res.optional_domains]]) {
+    if (!v?.length) continue;
+    const dt = document.createElement("dt");
+    dt.textContent = k;
+    const dd = document.createElement("dd");
+    dd.textContent = v.join(", ");
+    domains.append(dt, dd);
   }
 }
 
@@ -330,164 +691,25 @@ function confirmAction(text) {
   });
 }
 
-function closeDetail() {
-  $("#detail").hidden = true;
-  detailItem = null;
-  if (detailReturnFocus && document.contains(detailReturnFocus)) detailReturnFocus.focus();
-  else focusFirst();
-}
-
-// ---- account: the Nostr signer and settings ----
-
-const MODE_LABEL = { none: "Not signed in", nsec: "Private key", bunker: "Remote signer", system: "System signer" };
-
-async function loadAccount() {
-  const [signer, settings] = await Promise.all([call("signer.status"), call("settings.get")]);
-  renderSigner(signer);
-  renderTheme(settings.theme);
-}
-
-function renderSigner(s) {
-  const connected = s.connection_state === "connected";
-  $("#signer-dot").className = "dot " + (s.mode === "none" ? "" : connected ? "ok" : "bad");
-  $("#signer-mode").textContent = MODE_LABEL[s.mode] + (s.mode !== "none" && !connected ? " (not connected)" : "");
-  $("#signer-npub").textContent = s.npub || (s.mode === "none" ? "Napplets that need a key will not be able to sign in." : "");
-
-  const actions = $("#signer-actions");
-  actions.replaceChildren();
-  const signedIn = s.mode !== "none";
-  actions.append(
-    button("Connect a signer app", signedIn ? "secondary" : "primary", startPair),
-    button("Paste a bunker link", "secondary", () => openSecretForm("bunker")),
-    button("Use a private key", "secondary", () => openSecretForm("nsec")),
-    button("Use the system signer", "secondary", switchSystem),
-  );
-  if (signedIn) {
-    actions.append(button("Sign out", "danger", async () => {
-      renderSigner(await call("signer.switch", { mode: "none" }));
-      toast("Signed out");
-      focusFirst();
-    }, "Sign out? Open napplets close, and a saved private key or bunker link is forgotten."));
-  }
-}
-
-// nostrconnect: show a QR code for the signer app, then wait for its answer.
-let pairing = false;
-async function startPair() {
-  const offer = await call("signer.pair.start");
-  pairing = true;
-  closeSecretForm();
-  $("#pair-qr").src = offer.qr;
-  $("#pair-relay").textContent = offer.relay;
-  $("#pair").hidden = false;
-  $("#pair-cancel").focus();
-  $("#pair").scrollIntoView({ block: "nearest" });
-  try {
-    const s = await call("signer.pair.wait");
-    if (!pairing) return;
-    renderSigner(s);
-    toast("Connected to your signer");
-  } catch (err) {
-    if (pairing) toast(err.code === 1008 ? "The pairing offer expired. Try again." : err.message, true);
-  } finally {
-    if (pairing) hidePair();
-  }
-}
-
-function hidePair() {
-  pairing = false;
-  $("#pair").hidden = true;
-  $("#pair-qr").removeAttribute("src");
-  focusFirst();
-}
-
-function cancelPair() {
-  hidePair();
-  call("signer.pair.cancel").catch(() => {});
-}
-
-const SECRET_FORMS = {
-  bunker: {
-    label: "Bunker link",
-    placeholder: "bunker://…",
-    help: "From your remote signer (nsec.app, Amber, nsecBunker). Press Steam + X for the keyboard.",
-    valid: (v) => v.startsWith("bunker://"),
-    invalid: "A bunker link starts with bunker://",
-  },
-  nsec: {
-    label: "Private key",
-    placeholder: "nsec1…",
-    help: "Your key is stored by kwakore in your home directory, readable only by you. A signer app is safer.",
-    valid: (v) => v.startsWith("nsec1"),
-    invalid: "A private key starts with nsec1",
-  },
-};
-let secretMode = null;
-
-function openSecretForm(mode) {
-  if (pairing) cancelPair();
-  const f = SECRET_FORMS[mode];
-  secretMode = mode;
-  $("#secret-label").textContent = f.label;
-  $("#secret-help").textContent = f.help;
-  const input = $("#secret-input");
-  input.type = mode === "nsec" ? "password" : "text";
-  input.placeholder = f.placeholder;
-  input.value = "";
-  $("#secret-form").hidden = false;
-  input.focus();
-}
-
-function closeSecretForm() {
-  if ($("#secret-form").hidden) return;
-  secretMode = null;
-  $("#secret-input").value = "";
-  $("#secret-form").hidden = true;
-  focusFirst();
-}
-
-async function submitSecret() {
-  const f = SECRET_FORMS[secretMode];
-  const secret = $("#secret-input").value.trim();
-  if (!f.valid(secret)) throw new Error(f.invalid);
-  let s;
-  try {
-    s = await call("signer.switch", { mode: secretMode, secret });
-  } catch (err) {
-    if (err.code === 1004) throw new Error("Could not connect with that " + f.label.toLowerCase() + ".");
-    throw err;
-  }
-  closeSecretForm();
-  renderSigner(s);
-  toast(s.connection_state === "connected" ? "Signed in" : "Saved, but not connected yet");
-}
-
-async function switchSystem() {
-  const s = await call("signer.switch", { mode: "system" });
-  renderSigner(s);
-  toast(s.connection_state === "connected" ? "Using the system signer" : "No system signer is answering; kwakore keeps trying.");
-}
-
-function renderTheme(theme) {
-  for (const b of $("#theme").children) b.setAttribute("aria-pressed", String(b.dataset.value === theme));
-}
-
 // ---- controller and keyboard navigation ----
 
+// An open account modal, or the napplet page, keeps focus inside it, away
+// from the header tabs.
 function scope() {
-  return $("#detail").hidden ? document.body : $("#detail");
+  if (modalOpen()) return $("#account-modal");
+  return pageOpen() ? $("#napplet") : document.body;
 }
 
 function focusables(root) {
-  return [...root.querySelectorAll("button, input")].filter(
-    (el) => !el.disabled && el.offsetParent !== null && !(root === document.body && $("#detail").contains(el)),
-  );
+  return [...root.querySelectorAll("button, input, textarea")].filter((el) => !el.disabled && el.offsetParent !== null);
 }
 
 function focusFirst(root) {
   const r = root || scope();
   const list = focusables(r);
-  const first = list.find((el) => el.classList.contains("card")) || list.find((el) => !el.classList.contains("tab")) || list[0];
+  const first = list.find((el) => el.classList.contains("card")) ||
+    list.find((el) => $("#d-actions").contains(el)) ||
+    list.find((el) => !el.classList.contains("tab") && el.id !== "d-back") || list[0];
   first?.focus();
 }
 
@@ -517,24 +739,37 @@ function move(dx, dy) {
 }
 
 function back() {
-  if (!$("#detail").hidden) return closeDetail();
-  if (!$("#pair").hidden) return cancelPair();
-  if (!$("#secret-form").hidden) return closeSecretForm();
+  if (modalOpen()) return closeModal();
+  if (pageOpen()) {
+    const el = document.activeElement;
+    if (!$("#zap-invoice").hidden) return hideZapInvoice();
+    if (page.replyTo) return cancelReply();
+    if (el && ["INPUT", "TEXTAREA"].includes(el.tagName)) return $(`.ptab[data-ptab="${page.tab}"]`).focus();
+    return closeDetail();
+  }
   if (document.activeElement === $("#search")) return focusFirst();
 }
 
 function cycleTab(step) {
-  if (!$("#detail").hidden) return;
+  if (modalOpen()) return;
+  if (pageOpen()) {
+    const tabs = visiblePtabs();
+    const next = tabs[(tabs.indexOf(page.tab) + step + tabs.length) % tabs.length];
+    showPageTab(next);
+    $(`.ptab[data-ptab="${next}"]`).focus();
+    return;
+  }
   showTab(TABS[(TABS.indexOf(state.tab) + step + TABS.length) % TABS.length]);
 }
 
 document.addEventListener("keydown", (e) => {
-  const typing = e.target.tagName === "INPUT";
+  const typing = ["INPUT", "TEXTAREA"].includes(e.target.tagName);
+  const multiline = e.target.tagName === "TEXTAREA";
   switch (e.key) {
     case "ArrowLeft": if (typing) return; move(-1, 0); break;
     case "ArrowRight": if (typing) return; move(1, 0); break;
-    case "ArrowUp": move(0, -1); break;
-    case "ArrowDown": move(0, 1); break;
+    case "ArrowUp": if (multiline) return; move(0, -1); break;
+    case "ArrowDown": if (multiline) return; move(0, 1); break;
     case "Escape": case "Backspace": if (typing && e.key === "Backspace") return; back(); break;
     case "PageUp": cycleTab(-1); break;
     case "PageDown": cycleTab(1); break;
@@ -608,18 +843,27 @@ $("#sync").addEventListener("click", (e) => busy(e.currentTarget, async () => {
     : "Steam shortcuts updated (" + (r?.shortcut_count ?? 0) + ")");
 }));
 
-$("#pair-cancel").addEventListener("click", cancelPair);
-$("#secret-cancel").addEventListener("click", closeSecretForm);
-$("#secret-form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  busy($("#secret-submit"), submitSecret);
-});
-for (const b of $("#theme").children) {
-  b.addEventListener("click", () => busy(b, async () => {
-    await call("settings.set", { field: "theme", value: b.dataset.value });
-    renderTheme(b.dataset.value);
-  }));
+$("#d-back").addEventListener("click", closeDetail);
+for (const t of document.querySelectorAll(".ptab")) t.addEventListener("click", () => showPageTab(t.dataset.ptab));
+for (const b of $("#d-votes").children) b.addEventListener("click", () => busy(b, () => vote(b.dataset.vote)));
+for (const name of Object.keys(LISTS)) {
+  $(LISTS[name].more).addEventListener("click", (e) => busy(e.currentTarget, () => loadList(name, true)));
 }
+$("#comment-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  busy($("#comment-submit"), submitComment);
+});
+$("#reply-cancel").addEventListener("click", () => { cancelReply(); $("#comment-text").focus(); });
+$("#share-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  busy($("#share-submit"), submitShare);
+});
+for (const b of $("#zap-amounts").children) {
+  b.addEventListener("click", () => { zapSats = Number(b.dataset.sats); renderZapAmount(); });
+}
+renderZapAmount();
+$("#zap-submit").addEventListener("click", (e) => busy(e.currentTarget, requestZap));
+$("#zap-done").addEventListener("click", (e) => busy(e.currentTarget, zapDone));
 
 async function refreshStatus() {
   const el = $("#status");
@@ -635,5 +879,8 @@ async function refreshStatus() {
 
 refreshStatus();
 setInterval(refreshStatus, 15000);
-const startTab = new URLSearchParams(location.hash.slice(1)).get("tab");
-showTab(TABS.includes(startTab) ? startTab : "library");
+// account.js loads after this script, so start once both have run
+document.addEventListener("DOMContentLoaded", () => {
+  const startTab = new URLSearchParams(location.hash.slice(1)).get("tab");
+  showTab(TABS.includes(startTab) ? startTab : "library");
+});

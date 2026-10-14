@@ -27,16 +27,20 @@ func Page() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	css, err := read("store.css")
-	if err != nil {
-		return "", err
+	for _, name := range []string{"store.css", "account.css"} {
+		css, err := read(name)
+		if err != nil {
+			return "", err
+		}
+		html = strings.Replace(html, `<link rel="stylesheet" href="`+name+`">`, "<style>\n"+css+"</style>", 1)
 	}
-	js, err := read("store.js")
-	if err != nil {
-		return "", err
+	for _, name := range []string{"store.js", "account.js"} {
+		js, err := read(name)
+		if err != nil {
+			return "", err
+		}
+		html = strings.Replace(html, `<script src="`+name+`"></script>`, "<script>\n"+js+"</script>", 1)
 	}
-	html = strings.Replace(html, `<link rel="stylesheet" href="store.css">`, "<style>\n"+css+"</style>", 1)
-	html = strings.Replace(html, `<script src="store.js"></script>`, "<script>\n"+js+"</script>", 1)
 	return html, nil
 }
 

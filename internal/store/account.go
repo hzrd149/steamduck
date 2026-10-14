@@ -81,6 +81,15 @@ func (a *API) callAccount(ctx context.Context, method string, raw json.RawMessag
 			return nil, ok, err
 		}
 		return viewSigner(s), ok, nil
+	case "profile.get":
+		var p profileParams
+		if len(raw) > 0 {
+			_ = json.Unmarshal(raw, &p)
+		}
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		res, err := a.getProfile(ctx, p.Refresh)
+		return res, ok, err
 	case "signer.pair.cancel":
 		return nil, ok, a.Client.PairCancel(ctx)
 	case "permissions.get":

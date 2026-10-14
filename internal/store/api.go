@@ -37,6 +37,8 @@ type API struct {
 
 	iconMu sync.Mutex
 	icons  map[string]string // address -> data URL ("" when none)
+
+	profiles profileCache
 }
 
 type addressParams struct {
@@ -104,6 +106,9 @@ func (a *API) Call(ctx context.Context, method string, raw json.RawMessage) (any
 		return nil, nil
 	}
 	if res, ok, err := a.callAccount(ctx, method, raw); ok {
+		return res, err
+	}
+	if res, ok, err := a.callSocial(ctx, method, raw); ok {
 		return res, err
 	}
 	return nil, fmt.Errorf("unknown method %q", method)
