@@ -20,7 +20,7 @@ import (
 )
 
 // StoreName is the store app's title in the Steam library.
-const StoreName = "Napplet Store"
+const StoreName = "Steamduck Store"
 
 // Syncer reconciles shortcuts for every Steam account on the machine.
 type Syncer struct {
@@ -302,4 +302,36 @@ func (s *Syncer) Wanted(ctx context.Context) ([]Wanted, error) {
 		})
 	}
 	return out, nil
+}
+
+// RemoveAll deletes every steamduck shortcut and the grid art steamduck
+// wrote for it from each Steam account under steamRoot. Steam must not be
+// running: it keeps shortcuts in memory and would write them back.
+func RemoveAll(steamRoot string) (map[string]steam.Change, error) {
+	users, err := steam.Users(steamRoot)
+	if err != nil {
+		return nil, err
+	}
+	art, err := steam.LoadArtState(filepath.Join(paths.DataDir(), "art.json"))
+	if err != nil {
+		return nil, err
+	}
+	changes := map[string]steam.Change{}
+	for _, u := range users {
+		root, err := steam.LoadShortcuts(u.ShortcutsPath())
+		if err != nil {
+			return changes, err
+		}
+		ch := steam.Reconcile(root, nil)
+		changes[u.ID] = ch
+		if !ch.Empty() {
+			if err := steam.SaveShortcuts(u.ShortcutsPath(), root); err != nil {
+				return changes, err
+			}
+		}
+		for _, id := range ch.RemovedAppIDs {
+			art.RemoveOwned(u.GridDir(), id)
+		}
+	}
+	return changes, art.Save()
 }

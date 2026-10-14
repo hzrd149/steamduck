@@ -60,7 +60,7 @@ func RunWindow(ctx context.Context, api *API, debug bool) error {
 		return fmt.Errorf("could not create the store window")
 	}
 	defer w.Destroy()
-	w.SetTitle("Napplet Store")
+	w.SetTitle("Steamduck Store")
 	w.SetSize(1280, 800, webview.HintNone)
 	api.Quit = w.Terminate
 

@@ -26,7 +26,7 @@ func TestReconcileKeepsUserShortcuts(t *testing.T) {
 	want := []Shortcut{
 		NappletShortcut(exe, "35129:aa:snake", "Snake"),
 		NappletShortcut(exe, "35129:aa:tetris", "Tetris"),
-		{Key: StoreKey, Name: "Napplet Store", Exe: exe},
+		{Key: StoreKey, Name: "Steamduck Store", Exe: exe},
 	}
 	ch := Reconcile(root, want)
 	if len(ch.Added) != 3 || len(ch.Removed) != 0 {

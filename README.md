@@ -42,8 +42,10 @@ steamduck store --serve 127.0.0.1:8080   # the same UI in a browser, for develop
 steamduck launch --napplet ADDRESS [--appid ID] [--try]
 steamduck sync [--watch] [--force] [--json]
 steamduck shortcuts         # wanted shortcuts as JSON (for a Decky plugin)
-steamduck uninstall
+steamduck uninstall [--kwakore] [--keep-shortcuts] [--restart-steam]
 ```
+
+`uninstall` removes the Steam shortcuts and the art steamduck made for them, the sync service, the kwakore.service drop-in, the desktop entry, `~/.local/lib/steamduck`, steamduck's data and config, and the PATH lines the installer added. Steam must be closed, because it would write the shortcuts back; `--restart-steam` closes it and starts it again. `--kwakore` also runs kwakore's uninstall helper, which keeps kwakore's settings and installed napplets.
 
 Configuration lives in `~/.config/steamduck/config.json`:
 

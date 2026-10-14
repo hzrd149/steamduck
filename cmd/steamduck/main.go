@@ -31,7 +31,7 @@ const usage = `steamduck - kwakore napplets on the Steam Deck
 
 Usage:
   steamduck install [--kwakore-version TAG] [--kwakore-archive FILE] [--kwakore-installer FILE] [--skip-kwakore]
-  steamduck uninstall
+  steamduck uninstall [--kwakore] [--keep-shortcuts] [--restart-steam]
   steamduck doctor [--json]
   steamduck store [--serve 127.0.0.1:PORT] [--debug]
   steamduck launch --napplet ADDRESS [--appid ID] [--try]
@@ -41,7 +41,7 @@ Usage:
 
 Commands:
   install    install kwakore and steamduck for this user (no root needed)
-  uninstall  remove steamduck's files and service; kwakore stays
+  uninstall  remove steamduck, its Steam shortcuts, files and service
   doctor     check the runtime libraries, services and display
   store      open the napplet store
   launch     run a napplet as a Steam game (what Steam shortcuts run)
@@ -65,7 +65,7 @@ func main() {
 	case "install":
 		err = runInstall(ctx, log, args)
 	case "uninstall":
-		err = installer.Uninstall(ctx, log)
+		err = runUninstall(ctx, log, args)
 	case "doctor":
 		err = runDoctor(ctx, args)
 	case "store":
@@ -133,6 +133,59 @@ func runInstall(ctx context.Context, log *slog.Logger, args []string) error {
 		log.Warn("initial shortcut sync", "err", err)
 	}
 	fmt.Println("steamduck is installed. Run `steamduck doctor` to check the runtime.")
+	return nil
+}
+
+func runUninstall(ctx context.Context, log *slog.Logger, args []string) error {
+	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
+	kwakore := fs.Bool("kwakore", false, "also remove kwakore (its settings and napplets are kept)")
+	keep := fs.Bool("keep-shortcuts", false, "leave the Steam shortcuts in place")
+	restart := fs.Bool("restart-steam", false, "close Steam, remove the shortcuts, then start Steam again")
+	_ = fs.Parse(args)
+
+	root, rootErr := steam.Root()
+	removeShortcuts := !*keep && rootErr == nil
+	if removeShortcuts && steam.Running() {
+		if !*restart {
+			return errors.New("Steam is running and would write the shortcuts back; close Steam first, " +
+				"or pass --restart-steam (or --keep-shortcuts)")
+		}
+		log.Info("closing Steam to remove the shortcuts")
+		if err := steam.Shutdown(ctx); err != nil {
+			return err
+		}
+		defer func() {
+			if steam.InGameMode() {
+				return // the gamescope session starts Steam again itself
+			}
+			log.Info("starting Steam")
+			if err := steam.Start(); err != nil {
+				log.Error("start Steam", "err", err)
+			}
+		}()
+	}
+	// stop the sync service before it can put shortcuts back
+	_ = installer.StopSync(ctx)
+	if removeShortcuts {
+		changes, err := library.RemoveAll(root)
+		if err != nil {
+			return fmt.Errorf("remove Steam shortcuts: %w", err)
+		}
+		for user, ch := range changes {
+			log.Info("removed Steam shortcuts", "steam_account", user, "removed", len(ch.Removed))
+		}
+	} else if !*keep {
+		log.Info("no Steam installation found; no shortcuts to remove", "err", rootErr)
+	}
+	if err := installer.Uninstall(ctx, installer.UninstallOptions{Kwakore: *kwakore, Log: log}); err != nil {
+		return err
+	}
+	if *kwakore {
+		fmt.Println("steamduck and kwakore are uninstalled.")
+	} else {
+		fmt.Println("steamduck is uninstalled. kwakore is still installed; to remove it too, run:\n" +
+			"  curl -fsSL https://raw.githubusercontent.com/" + installer.KwakoreRepo + "/master/scripts/uninstall.sh | bash")
+	}
 	return nil
 }
 

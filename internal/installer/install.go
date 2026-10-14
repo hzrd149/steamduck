@@ -221,30 +221,144 @@ func desktopEntryPath() string {
 }
 
 func writeDesktopEntry(exe string) error {
-	entry := "[Desktop Entry]\nType=Application\nName=Napplet Store\nComment=Install and launch napplets\n" +
+	entry := "[Desktop Entry]\nType=Application\nName=Steamduck Store\nComment=Install and launch napplets\n" +
 		"Exec=\"" + exe + "\" store\nIcon=" + filepath.Join(paths.IconsDir(), "store.png") +
 		"\nCategories=Game;Network;\nTerminal=false\n"
 	return writeFile(desktopEntryPath(), []byte(entry), 0o644)
 }
 
-// Uninstall removes what Install added for steamduck. Kwakore, its data and
-// the Steam shortcuts stay; kwakore's own uninstall helper removes kwakore.
-func Uninstall(ctx context.Context, log *slog.Logger) error {
-	_ = systemctl(ctx, "disable", "--now", "steamduck-sync.service")
+// UninstallOptions for Uninstall.
+type UninstallOptions struct {
+	// Kwakore also removes kwakore through its own uninstall helper. Its
+	// configuration and installed napplets are kept.
+	Kwakore bool
+	Log     *slog.Logger
+}
+
+// StopSync stops the shortcut sync service, so it cannot write shortcuts
+// back while they are being removed.
+func StopSync(ctx context.Context) error {
+	return systemctl(ctx, "disable", "--now", "steamduck-sync.service")
+}
+
+// Uninstall removes everything Install and install.sh added for steamduck:
+// the sync service, the kwakore.service drop-in, the desktop entry, the
+// binary and its link, steamduck's data and configuration, and the PATH
+// lines install.sh added to shell startup files. Steam shortcuts are the
+// caller's to remove first (library.RemoveAll), while the binary they run
+// is still in place.
+func Uninstall(ctx context.Context, opts UninstallOptions) error {
+	log := opts.Log
+	if os.Geteuid() == 0 {
+		return errors.New("run steamduck uninstall as the deck user, not root")
+	}
+	_ = StopSync(ctx)
 	for _, p := range []string{
 		filepath.Join(paths.SystemdUserDir(), "steamduck-sync.service"),
 		DropInPath(),
 		desktopEntryPath(),
-		filepath.Join(paths.BinDir(), "steamduck"),
 	} {
 		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log.Warn("remove", "path", p, "err", err)
 		}
 	}
-	_ = os.Remove(filepath.Dir(DropInPath()))
+	_ = os.Remove(filepath.Dir(DropInPath())) // only when empty
+	// only the link install made; a steamduck the user put there stays
+	link := filepath.Join(paths.BinDir(), "steamduck")
+	if cur, err := os.Readlink(link); err == nil && cur == filepath.Join(paths.LibDir(), "steamduck") {
+		if err := os.Remove(link); err != nil {
+			log.Warn("remove", "path", link, "err", err)
+		}
+	}
+	for _, dir := range []string{paths.LibDir(), paths.DataDir(), paths.ConfigDir()} {
+		if err := os.RemoveAll(dir); err != nil {
+			log.Warn("remove", "path", dir, "err", err)
+		}
+	}
+	removePathLines(log)
 	_ = systemctl(ctx, "daemon-reload")
-	_ = systemctl(ctx, "try-restart", "kwakore.service")
+	_ = systemctl(ctx, "reset-failed", "steamduck-sync.service")
+
+	if opts.Kwakore {
+		if err := uninstallKwakore(ctx, log); err != nil {
+			return fmt.Errorf("uninstall kwakore: %w", err)
+		}
+	} else {
+		// drop the drop-in's environment
+		_ = systemctl(ctx, "try-restart", "kwakore.service")
+	}
 	return nil
+}
+
+// pathMarker heads the lines install.sh adds to put ~/.local/bin on PATH.
+const pathMarker = "# Added by the steamduck installer"
+
+// removePathLines undoes install.sh's PATH change: the fish conf.d file,
+// and in ~/.bashrc and ~/.zshrc the marker line, the line after it and the
+// blank line before it.
+func removePathLines(log *slog.Logger) {
+	fish := filepath.Join(xdgConfigHome(), "fish", "conf.d", "steamduck.fish")
+	if data, err := os.ReadFile(fish); err == nil && strings.HasPrefix(string(data), pathMarker) {
+		if err := os.Remove(fish); err != nil {
+			log.Warn("remove", "path", fish, "err", err)
+		}
+	}
+	for _, rc := range []string{".bashrc", ".zshrc"} {
+		rc = filepath.Join(paths.Home(), rc)
+		data, err := os.ReadFile(rc)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		var kept []string
+		changed := false
+		for i := 0; i < len(lines); i++ {
+			if lines[i] != pathMarker {
+				kept = append(kept, lines[i])
+				continue
+			}
+			if n := len(kept); n > 0 && kept[n-1] == "" {
+				kept = kept[:n-1]
+			}
+			i++ // the PATH line
+			changed = true
+		}
+		if !changed {
+			continue
+		}
+		// in place, so a dotfiles symlink stays a symlink
+		if err := os.WriteFile(rc, []byte(strings.Join(kept, "\n")), 0o644); err != nil {
+			log.Warn("remove PATH lines", "path", rc, "err", err)
+		} else {
+			log.Info("removed ~/.local/bin from PATH", "path", rc)
+		}
+	}
+}
+
+func xdgConfigHome() string {
+	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" && filepath.IsAbs(v) {
+		return v
+	}
+	return filepath.Join(paths.Home(), ".config")
+}
+
+// uninstallKwakore runs kwakore's own uninstall helper, which removes its
+// service and binaries and keeps its configuration and napplets.
+func uninstallKwakore(ctx context.Context, log *slog.Logger) error {
+	tmp, err := os.MkdirTemp("", "steamduck-uninstall-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	script := filepath.Join(tmp, "uninstall.sh")
+	url := "https://raw.githubusercontent.com/" + KwakoreRepo + "/master/scripts/uninstall.sh"
+	log.Info("downloading kwakore uninstall helper", "url", url)
+	if err := download(ctx, url, script); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "bash", script)
+	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	return cmd.Run()
 }
 
 func writeFile(path string, data []byte, mode os.FileMode) error {

@@ -204,10 +204,11 @@ cat <<EOF
 
 steamduck is installed.
 
-  - Your installed napplets and "Napplet Store" are in the Steam library,
+  - Your installed napplets and the "Steamduck Store" are in the Steam library,
     in the "Napplets" collection (switch to Game Mode to try them).
   - Run "steamduck doctor" in a terminal to check the setup again.
   - Logs from games launched by Steam: ~/.local/share/steamduck/steamduck.log
-  - Update: run this installer again. Remove: steamduck uninstall
+  - Update: run this installer again.
+  - Remove: steamduck uninstall (add --kwakore to remove kwakore too)
 
 EOF
