@@ -32,7 +32,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -43,10 +43,14 @@ jobs:
       - run: bash -n install.sh
 
   kwakore:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Ubuntu 22.04's glibc (2.35) is older than any current SteamOS, so the
     # cgo binaries run there; building on a newer image would not.
     container: ubuntu:22.04
+    defaults:
+      run:
+        # the bare container's default is sh
+        shell: bash
     steps:
       - name: build dependencies
         run: |
@@ -82,7 +86,7 @@ jobs:
 
   steamduck:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -108,7 +112,7 @@ jobs:
 
   release:
     needs: [kwakore, steamduck]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
