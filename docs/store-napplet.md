@@ -115,19 +115,22 @@ It never replaces a real injected NAP-STEAMDUCK domain.
 
 ## Kwakore settings page
 
-The Settings tab edits every non-secret mutable daemon setting: `relays`,
-`blossom_servers`, `discover_on_user_relays`, `theme`, `desktop_entries`,
-`gnome_search`, `sync_id` and `social_refresh`. Signer credentials and account
+The Settings tab edits `relays`, `blossom_servers`, `discover_on_user_relays`,
+`theme`, `desktop_entries`, `sync_id` and `social_refresh`. GNOME search is hidden;
+Steamduck installation configures it off when no explicit configuration exists,
+while preserving existing configuration and daemon overrides. Signer credentials and account
 management remain on the Account tab. The page works through NAP-STEAMDUCK in
 the native runtime and through the existing compatibility transport.
 
-Each field has its own Save and Discard controls; drafts survive tab changes.
-Settings are persisted independently, so saving one field does not overwrite
-other unsaved edits. The page reads actual effective values after mutations and
-reports an acknowledged write separately from a failed verification read.
+Settings save automatically: toggles and list changes save immediately, and
+text fields save after a 500 ms typing pause. Requests run sequentially and
+retain edits made during a save. Failed saves keep the edited value and offer
+Retry saving. Drafts survive tab changes. The page reads effective values after
+mutations and reports an acknowledged write separately from a failed read.
 
-Relay and Blossom lists take one address per line, preserve priority order, and
-normalize host casing, schemes, ports and duplicate entries. Bare relay hosts
+Relay and Blossom lists have single-address Add forms and per-address Remove
+buttons. They preserve priority order, normalize host casing, schemes and ports,
+and reject duplicate entries. Bare relay hosts
 use `wss://`; bare Blossom hosts use `https://`. Relays require `wss://`, while
 Blossom supports `https://` and `http://`. Credentials, query strings and
 fragments are rejected. Empty arrays, `false`, an empty sync name and a zero

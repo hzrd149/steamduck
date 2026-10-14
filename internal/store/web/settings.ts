@@ -6,17 +6,15 @@ type Settings = Record<string, Value | unknown>;
 type Definition = { field: string; title: string; help: string; type: "urls" | "toggle" | "theme" | "text"; placeholder?: string };
 const definitions: Definition[] = [
   { field: "relays", title: "Discovery relays", type: "urls", placeholder: "wss://relay.example.com",
-    help: "Relays Kwakore uses to discover napplets. Enter one address per line; bare hostnames use wss://. An empty list disables these relays." },
+    help: "Relays Kwakore uses to discover napplets. Add relay addresses below; bare hostnames use wss://. An empty list disables these relays." },
   { field: "blossom_servers", title: "Blossom servers", type: "urls", placeholder: "https://blossom.example.com",
-    help: "Servers Kwakore checks for napplet files, in priority order. Enter one address per line; bare hostnames use https://. An empty list disables these configured servers." },
+    help: "Servers Kwakore checks for napplet files, in priority order. Add server addresses below; bare hostnames use https://. An empty list disables these configured servers." },
   { field: "discover_on_user_relays", title: "Discover on my account’s relays", type: "toggle",
     help: "Also look for napplets on the relays associated with your signed-in Nostr account." },
   { field: "theme", title: "Napplet theme", type: "theme",
     help: "Choose light or dark for napplet windows, or follow your device’s theme." },
   { field: "desktop_entries", title: "Desktop shortcuts", type: "toggle",
     help: "Add installed napplets to your desktop application menu. Turning this off removes Kwakore’s desktop shortcuts; Steam shortcuts are managed separately." },
-  { field: "gnome_search", title: "GNOME search", type: "toggle",
-    help: "Show installed napplets in GNOME’s desktop search. Turning this off removes the search integration." },
   { field: "sync_id", title: "Installed-list sync", type: "text", placeholder: "laptops",
     help: "Use the same sync name and Nostr account on devices that should share an installed napplet list. Leave blank to turn sync off. Up to 64 printable characters, with no spaces." },
   { field: "social_refresh", title: "Social refresh interval", type: "text", placeholder: "6h",
@@ -25,12 +23,13 @@ const definitions: Definition[] = [
 
 type Editor = {
   definition: Definition; root: HTMLElement; controls: Array<HTMLInputElement | HTMLTextAreaElement | HTMLButtonElement>;
-  input?: HTMLInputElement | HTMLTextAreaElement; choice?: Value; baseline: Value;
-  source: HTMLElement; message: HTMLElement; save: HTMLButtonElement; reset: HTMLButtonElement; discard: HTMLButtonElement;
+  input?: HTMLInputElement; list?: HTMLElement; choice?: Value; baseline: Value; generation: number; timer?: ReturnType<typeof setTimeout>;
+  source: HTMLElement; message: HTMLElement; retry: HTMLButtonElement; reset: HTMLButtonElement;
 };
 const editors = new Map<string, Editor>();
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const pendingRestore = new Set<string>();
+const pendingSaves = new Set<Editor>();
 let sources: Record<string, string> = {};
 let methods: string[] = [];
 let loading = false;
@@ -69,9 +68,8 @@ function urlList(text: string, field: string): string[] {
 
 function read(editor: Editor, validate = false): Value {
   const { definition, input } = editor;
-  if (!input) return editor.choice!;
+  if (!input || definition.type === "urls") return editor.choice!;
   const text = input.value.trim();
-  if (definition.type === "urls") return urlList(text, definition.field);
   if (validate && definition.field === "sync_id" && !/^[!-~]{0,64}$/.test(text)) {
     throw new Error("Use up to 64 printable characters without spaces, or leave blank to turn sync off.");
   }
@@ -94,8 +92,7 @@ function dirty(editor: Editor): boolean {
 function updateActions(): void {
   for (const editor of editors.values()) {
     const changed = dirty(editor);
-    editor.save.disabled = mutating || loading || !changed;
-    editor.discard.disabled = mutating || loading || !changed;
+    editor.retry.disabled = mutating || loading || !changed;
     editor.reset.hidden = !methods.includes("settings.clear");
     editor.reset.disabled = mutating || loading || sources[editor.definition.field] === "default" || sources[editor.definition.field] === "config";
     editor.source.textContent = sources[editor.definition.field] === "override" ? "Saved on this device" :
@@ -109,15 +106,70 @@ function updateActions(): void {
 
 function setValue(editor: Editor, value: Value): void {
   editor.baseline = Array.isArray(value) ? [...value] : value;
-  if (editor.input) editor.input.value = Array.isArray(value) ? value.join("\n") : String(value);
+  if (editor.definition.type === "urls") {
+    const changed = !equal(editor.choice, value);
+    editor.choice = [...value as string[]];
+    if (changed) renderURLs(editor);
+  } else if (editor.input) editor.input.value = String(value);
   else {
     editor.choice = value;
     for (const control of editor.controls) control.setAttribute("aria-pressed", String(control.dataset.value === String(value)));
   }
 }
 
+function scheduleSave(editor: Editor, delay = 0): void {
+  clearTimeout(editor.timer);
+  pendingSaves.delete(editor);
+  editor.timer = setTimeout(() => {
+    if (dirty(editor)) pendingSaves.add(editor);
+    void flushSaves();
+  }, delay);
+}
+
+async function flushSaves(): Promise<void> {
+  if (loading || mutating) return;
+  const editor = pendingSaves.values().next().value;
+  if (!editor) return;
+  pendingSaves.delete(editor);
+  if (dirty(editor)) await mutate(editor, false);
+  void flushSaves();
+}
+
+function renderURLs(editor: Editor): void {
+  const values = editor.choice as string[];
+  editor.list!.replaceChildren();
+  if (!values.length) editor.list!.append(element("p", "No addresses added", "muted small"));
+  for (const url of values) {
+    const row = element("li", "", "setting-url");
+    row.append(element("span", url));
+    const remove = element("button", "Remove", "secondary");
+    remove.setAttribute("aria-label", `Remove ${url}`);
+    remove.addEventListener("click", () => {
+      const index = (editor.choice as string[]).indexOf(url);
+      editor.choice = (editor.choice as string[]).filter((value) => value !== url);
+      renderURLs(editor);
+      const buttons = editor.list!.querySelectorAll<HTMLButtonElement>("button");
+      (buttons[Math.min(index, buttons.length - 1)] || editor.input)?.focus();
+      changed(editor);
+    });
+    row.append(remove);
+    editor.list!.append(row);
+  }
+}
+
+function changed(editor: Editor): void {
+  editor.generation++;
+  pendingRestore.delete(editor.definition.field);
+  editor.message.textContent = dirty(editor) ? "Waiting to save…" : "";
+  editor.message.classList.remove("bad");
+  editor.retry.hidden = true;
+  editor.input?.removeAttribute("aria-invalid");
+  updateActions();
+  scheduleSave(editor, editor.definition.type === "text" ? 500 : 0);
+}
+
 function makeEditor(definition: Definition, value: Value): Editor {
-  const root = element("section", "", "panel setting-card");
+  const root = element("section", "", "setting-card");
   root.dataset.field = definition.field;
   const title = element("h2", definition.title);
   title.id = `setting-title-${definition.field}`;
@@ -126,18 +178,30 @@ function makeEditor(definition: Definition, value: Value): Editor {
   help.id = `setting-help-${definition.field}`;
   const controls: Editor["controls"] = [];
   let input: Editor["input"];
+  let list: HTMLElement | undefined;
+  let form: HTMLFormElement | undefined;
+  let addButton: HTMLButtonElement | undefined;
   root.append(title, help);
   if (definition.type === "urls" || definition.type === "text") {
-    input = definition.type === "urls" ? element("textarea") : element("input");
+    input = element("input");
     input.id = `setting-${definition.field}`;
-    input.setAttribute("aria-labelledby", title.id);
+    input.setAttribute("aria-label", definition.type === "urls" ? `Add ${definition.field === "relays" ? "relay" : "Blossom server"}` : definition.title);
     input.setAttribute("aria-describedby", help.id);
     input.placeholder = definition.placeholder || "";
     input.autocomplete = "off";
     input.spellcheck = false;
-    if (input instanceof HTMLTextAreaElement) input.rows = 4;
-    root.append(input);
     controls.push(input);
+    if (definition.type === "urls") {
+      list = element("ul", "", "setting-urls");
+      list.setAttribute("aria-labelledby", title.id);
+      form = element("form", "", "setting-add");
+      const add = element("button", "Add", "primary");
+      add.type = "button";
+      addButton = add;
+      controls.push(add);
+      form.append(input, add);
+      root.append(list, form);
+    } else root.append(input);
   } else {
     const choices = element("div", "", "segmented setting-choices");
     choices.setAttribute("aria-labelledby", title.id);
@@ -155,29 +219,50 @@ function makeEditor(definition: Definition, value: Value): Editor {
   message.setAttribute("role", "status");
   input?.setAttribute("aria-errormessage", message.id);
   const actions = element("div", "", "actions setting-actions");
-  const save = element("button", "Save", "primary");
-  const discard = element("button", "Discard edits", "secondary");
+  const retry = element("button", "Retry saving", "primary");
+  retry.hidden = true;
   const reset = element("button", "Reset to configured value", "secondary");
-  actions.append(save, discard, reset);
+  actions.append(retry, reset);
   root.append(source, message, actions);
-  const editor: Editor = { definition, root, controls, input, baseline: value, source, message, save, discard, reset };
+  const editor: Editor = { definition, root, controls, input, list, baseline: value, generation: 0, source, message, retry, reset };
   setValue(editor, value);
-  const changed = () => {
-    pendingRestore.delete(definition.field);
-    message.textContent = dirty(editor) ? "Unsaved changes" : "";
-    message.classList.remove("bad");
-    input?.removeAttribute("aria-invalid");
-    updateActions();
-  };
-  input?.addEventListener("input", changed);
+  if (form) {
+    const addAddress = () => {
+      try {
+        const text = input!.value.trim();
+        if (!text || /[\r\n]/.test(text)) throw new Error("Enter one address to add.");
+        const [url] = urlList(text, definition.field);
+        if ((editor.choice as string[]).includes(url)) throw new Error("This address is already added.");
+        editor.choice = [...editor.choice as string[], url];
+        input!.value = "";
+        renderURLs(editor);
+        changed(editor);
+        input!.focus();
+      } catch (error) {
+        message.textContent = (error as Error).message;
+        message.classList.add("bad");
+        input!.setAttribute("aria-invalid", "true");
+      }
+    };
+    // Opaque napplet sandboxes do not allow browser form submission. Handle
+    // both controller clicks and Enter locally without navigating the document.
+    addButton!.addEventListener("click", addAddress);
+    form.addEventListener("submit", (event) => { event.preventDefault(); addAddress(); });
+    input!.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); addAddress(); }
+    });
+    input!.addEventListener("input", () => {
+      input!.removeAttribute("aria-invalid");
+      if (!dirty(editor)) { message.textContent = ""; message.classList.remove("bad"); }
+    });
+  } else input?.addEventListener("input", () => changed(editor));
   if (!input) for (const control of controls) control.addEventListener("click", () => {
     editor.choice = definition.type === "toggle" ? control.dataset.value === "true" : control.dataset.value;
     for (const button of controls) button.setAttribute("aria-pressed", String(button === control));
-    changed();
+    changed(editor);
   });
-  save.addEventListener("click", () => { void mutate(editor, false); });
+  retry.addEventListener("click", () => scheduleSave(editor));
   reset.addEventListener("click", () => { void mutate(editor, true); });
-  discard.addEventListener("click", () => { setValue(editor, editor.baseline); changed(); });
   return editor;
 }
 
@@ -235,11 +320,11 @@ export async function loadSettings(): Promise<void> {
     if (current !== revision) return;
     sources = result.sources;
     applySnapshot(result.settings);
-    $("settings-status").textContent = editors.size ? "Save each setting separately. Reset removes this device’s override and restores your configuration or the built-in default." : "This runtime exposes no editable settings.";
+    $("settings-status").textContent = editors.size ? "Changes save automatically. Reset restores your configuration or the built-in default." : "This runtime exposes no editable settings.";
   } catch (error) {
     if (current === revision) $("settings-status").textContent = `${(error as Error).message} Use Refresh settings to try again.`;
   } finally {
-    if (current === revision) { loading = false; updateActions(); }
+    if (current === revision) { loading = false; updateActions(); void flushSaves(); }
   }
 }
 
@@ -257,30 +342,34 @@ async function mutate(editor: Editor, reset: boolean): Promise<void> {
   }
   if (reset && !await confirmAction(`Reset ${editor.definition.title.toLowerCase()} to your configuration or the built-in default? Unsaved edits for this setting will be discarded.`)) return;
   if (loading || mutating) return;
+  clearTimeout(editor.timer);
+  pendingSaves.delete(editor);
+  const generation = editor.generation;
   mutating = true;
   revision++;
-  for (const control of editor.controls) control.disabled = true;
   updateActions();
+  editor.retry.hidden = true;
   editor.message.classList.remove("bad");
   editor.message.textContent = reset ? "Resetting…" : "Saving…";
   let committed = false;
   try {
     await call(reset ? "settings.clear" : "settings.set", reset ? {field: editor.definition.field} : {field: editor.definition.field, value});
     committed = true;
-    if (reset) pendingRestore.add(editor.definition.field);
-    if (!reset) { setValue(editor, value); sources[editor.definition.field] = "override"; }
+    if (reset && generation === editor.generation) pendingRestore.add(editor.definition.field);
+    if (!reset) { editor.baseline = Array.isArray(value) ? [...value] : value; sources[editor.definition.field] = "override"; }
     const result = await snapshot();
     sources = result.sources;
-    applySnapshot(result.settings, editor.definition.field);
+    applySnapshot(result.settings, reset && generation === editor.generation ? editor.definition.field : undefined);
     editor.input?.removeAttribute("aria-invalid");
-    editor.message.textContent = reset ? "Configured value restored" : "Saved";
+    if (generation === editor.generation) editor.message.textContent = reset ? "Configured value restored" : "Saved";
   } catch (error) {
+    editor.retry.hidden = committed;
     editor.message.classList.add("bad");
     editor.message.textContent = committed ? "Change saved, but the current value could not be read. Refresh settings to verify it." : (error as Error).message;
   } finally {
     mutating = false;
-    for (const control of editor.controls) control.disabled = false;
     updateActions();
+    void flushSaves();
   }
 }
 
@@ -297,10 +386,14 @@ export function initSettings(): void {
       $("settings-status").textContent = "Configuration reloaded.";
     } catch (error) {
       $("settings-status").textContent = (error as Error).message;
-      mutating = false; updateActions(); return;
+      mutating = false; updateActions(); void flushSaves(); return;
     }
     mutating = false;
     await loadSettings();
   });
-  window.addEventListener("pagehide", () => { revision++; }, { once: true });
+  window.addEventListener("pagehide", () => {
+    revision++;
+    for (const editor of editors.values()) clearTimeout(editor.timer);
+    pendingSaves.clear();
+  }, { once: true });
 }

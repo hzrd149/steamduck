@@ -1,19 +1,39 @@
 #settings { max-width: 1050px; }
 .settings-toolbar { flex-wrap: wrap; }
 .settings-intro { max-width: 850px; }
+#settings .setting-card, #settings .settings-account {
+  background: transparent; border: 0; border-radius: 0;
+  margin: 0; padding: 28px 0;
+}
+#settings .setting-card + .setting-card, #settings .settings-account {
+  border-top: 1px solid var(--panel-2);
+}
+#settings h2 { font-size: 20px; margin: 0 0 8px; }
+.setting-card > .muted.small { max-width: 760px; }
+#settings button { border: 0; border-radius: 3px; }
+#settings .secondary { background: transparent; color: var(--muted); }
+#settings .secondary:hover { background: var(--panel-2); color: var(--text); }
+#settings .setting-choices { border-radius: 3px; }
 .setting-card input, .setting-card textarea {
   display: block; width: 100%; font: inherit; color: var(--text);
-  background: var(--bg); border: 2px solid var(--panel-2); border-radius: var(--radius);
+  background: var(--panel); border: 2px solid transparent; border-radius: 3px;
   padding: 12px 14px; user-select: text;
 }
 .setting-card textarea { resize: vertical; min-height: 120px; font-family: ui-monospace, monospace; font-size: 16px; }
 .setting-card input:focus, .setting-card textarea:focus { border-color: var(--focus); }
 .setting-card [aria-invalid="true"] { border-color: var(--bad); }
 .setting-source { margin: 12px 0 0; }
-.setting-message { min-height: 1.4em; margin: 8px 0; }
+.setting-message { margin: 8px 0; }
+.setting-message:empty { display: none; }
 .setting-message.bad { color: var(--bad); }
 .setting-actions { flex-wrap: wrap; margin-top: 12px; }
 .setting-choices { flex-wrap: wrap; }
+.setting-urls { list-style: none; margin: 0 0 12px; padding: 0; }
+.setting-url { display: flex; align-items: center; gap: 16px; padding: 8px 0; }
+.setting-url span { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: text; }
+.setting-add { display: flex; gap: 12px; align-items: center; }
+.setting-add input { flex: 1; min-width: 0; }
+.setting-add button { flex: none; }
 @media (max-width: 1100px) {
   header { flex-wrap: wrap; gap: 8px 16px; padding: 12px 18px; }
   .tabs { order: 3; width: 100%; justify-content: center; }
@@ -24,6 +44,6 @@
   .tab { padding: 8px 12px; }
   .tabs { gap: 2px; }
   .tabs .hint { display: none; }
-  .setting-card { padding: 20px; }
+  #settings .setting-card, #settings .settings-account { padding: 22px 0; }
   .settings-toolbar > button { flex: 1; }
 }

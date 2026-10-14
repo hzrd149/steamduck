@@ -55,6 +55,9 @@ func Install(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	if err := configureKwakoreDefaults(); err != nil {
+		return fmt.Errorf("configure kwakore defaults: %w", err)
+	}
 	if !opts.SkipKwakore {
 		if err := installKwakore(ctx, opts); err != nil {
 			return fmt.Errorf("install kwakore: %w", err)

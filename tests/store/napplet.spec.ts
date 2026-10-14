@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type FrameLocator } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
 const napplet = readFileSync(new URL("../../internal/store/built/napplet.html", import.meta.url), "utf8");
@@ -57,6 +57,10 @@ async function openStore(page: Page, options: { missing?: boolean; version?: num
     const execute = async (method, params) => {
       window.testCalls.push({method, params});
       if (window.testErrors[method]) throw window.testErrors[method];
+      if (method === "settings.set" && window.holdNextSave) {
+        window.holdNextSave = false;
+        await new Promise(resolve => { window.releaseSave = resolve; });
+      }
       switch (method) {
         case "status": return { health: { ready: true, version: "test" } };
         case "installed": return {items: [{...${JSON.stringify(item)},
@@ -155,7 +159,6 @@ test("the production HTML works in an opaque sandbox using injected NAP APIs", a
   await expect(frame.locator("#acct-signin")).toBeVisible();
   await frame.locator('.tab[data-tab="settings"]').click();
   await frame.locator('[data-field="theme"] [data-value="light"]').click();
-  await frame.locator('[data-field="theme"]').getByRole("button", {name: "Save", exact: true}).click();
   await expect(frame.locator('[data-field="theme"] .setting-message')).toHaveText("Saved");
   const calls = await frame.locator("body").evaluate(() => (window as any).testCalls);
   expect(calls).toContainEqual({ method: "settings.set", params: { field: "theme", value: "light" } });
@@ -395,22 +398,35 @@ test("profile edits remove the legacy displayName alias when clearing the displa
   expect(metadata).not.toHaveProperty("display_name");
 });
 
-test("settings exposes every editable daemon field and saves normalized server lists", async ({ page }) => {
+async function addAddress(frame: FrameLocator, field: string, address: string) {
+  await frame.locator(`#setting-${field}`).fill(address);
+  await frame.locator(`[data-field="${field}"]`).getByRole("button", {name: "Add", exact: true}).click();
+}
+
+test("settings auto-save added and removed addresses with no GNOME search control", async ({ page }) => {
   const {frame, errors, requests} = await openStore(page);
   await frame.locator('.tab[data-tab="settings"]').click();
-  await expect(frame.locator(".setting-card")).toHaveCount(8);
+  await expect(frame.locator(".setting-card")).toHaveCount(7);
+  await expect(frame.locator('[data-field="gnome_search"]')).toHaveCount(0);
+  await expect(frame.getByRole("button", {name: "Save", exact: true})).toHaveCount(0);
   const relays = frame.locator('[data-field="relays"]');
-  await frame.locator("#setting-relays").fill("RELAY.New.Example/\nrelay.new.example\nwss://other.example:443/feed/");
-  await relays.getByRole("button", {name: "Save", exact: true}).click();
+  await frame.locator("#setting-relays").fill("RELAY.New.Example/");
+  await frame.locator("#setting-relays").press("Enter");
   await expect(relays.locator(".setting-message")).toHaveText("Saved");
-  await expect(frame.locator("#setting-relays")).toHaveValue("wss://relay.new.example\nwss://other.example/feed");
+  await expect(frame.locator("#setting-relays")).toHaveValue("");
+  await expect(relays.locator(".setting-url span")).toHaveText(["wss://relay.example", "wss://relay.new.example"]);
+  await addAddress(frame, "relays", "relay.new.example");
+  await expect(relays.locator(".setting-message")).toHaveText("This address is already added.");
+  await relays.getByRole("button", {name: "Remove wss://relay.example", exact: true}).click();
+  await expect(relays.locator(".setting-message")).toHaveText("Saved");
   const blossom = frame.locator('[data-field="blossom_servers"]');
-  await frame.locator("#setting-blossom_servers").fill("blossom.new.example\nhttp://localhost:3000/files");
-  await blossom.getByRole("button", {name: "Save", exact: true}).click();
+  await addAddress(frame, "blossom_servers", "blossom.new.example");
+  await expect(blossom.locator(".setting-message")).toHaveText("Saved");
+  await addAddress(frame, "blossom_servers", "http://localhost:3000/files");
   await expect(blossom.locator(".setting-message")).toHaveText("Saved");
   const calls = await frame.locator("body").evaluate(() => (window as any).testCalls);
-  expect(calls).toContainEqual({method: "settings.set", params: {field: "relays", value: ["wss://relay.new.example", "wss://other.example/feed"]}});
-  expect(calls).toContainEqual({method: "settings.set", params: {field: "blossom_servers", value: ["https://blossom.new.example", "http://localhost:3000/files"]}});
+  expect(calls).toContainEqual({method: "settings.set", params: {field: "relays", value: ["wss://relay.new.example"]}});
+  expect(calls).toContainEqual({method: "settings.set", params: {field: "blossom_servers", value: ["https://blossom.example", "https://blossom.new.example", "http://localhost:3000/files"]}});
   expect(errors).toEqual([]);
   expect(requests).toEqual([]);
 });
@@ -422,14 +438,14 @@ test("invalid settings are explained inline without reaching the daemon", async 
     ["blossom_servers", "https://blossom.example?token=secret"], ["sync_id", "has spaces"], ["social_refresh", "2m"], ["social_refresh", "999h"]]) {
     const card = frame.locator(`[data-field="${field}"]`);
     await frame.locator(`#setting-${field}`).fill(value);
-    await card.getByRole("button", {name: "Save", exact: true}).click();
+    if (["relays", "blossom_servers"].includes(field)) await card.getByRole("button", {name: "Add", exact: true}).click();
     await expect(card.locator(".setting-message")).toHaveClass(/bad/);
     await expect(frame.locator(`#setting-${field}`)).toHaveAttribute("aria-invalid", "true");
   }
   expect(await frame.locator("body").evaluate(() => (window as any).testCalls.filter((c: any) => c.method === "settings.set"))).toEqual([]);
 });
 
-test("draft settings survive tab changes and a failed save can be retried", async ({ page }) => {
+test("address drafts survive tab changes and a failed auto-save can be retried", async ({ page }) => {
   const {frame} = await openStore(page);
   await frame.locator('.tab[data-tab="settings"]').click();
   const card = frame.locator('[data-field="relays"]');
@@ -438,12 +454,11 @@ test("draft settings survive tab changes and a failed save can be retried", asyn
   await frame.locator('.tab[data-tab="settings"]').click();
   await expect(frame.locator("#setting-relays")).toHaveValue("wss://draft.example");
   await frame.locator("body").evaluate(() => { (window as any).testErrors["settings.set"] = {message: "Could not persist settings"}; });
-  await card.getByRole("button", {name: "Save", exact: true}).click();
+  await card.getByRole("button", {name: "Add", exact: true}).click();
   await expect(card.locator(".setting-message")).toHaveText("Could not persist settings");
-  await expect(frame.locator("#setting-relays")).toHaveValue("wss://draft.example");
-  await expect(card.getByRole("button", {name: "Save", exact: true})).toBeEnabled();
+  await expect(card.locator(".setting-url span")).toHaveText(["wss://relay.example", "wss://draft.example"]);
   await frame.locator("body").evaluate(() => { delete (window as any).testErrors["settings.set"]; });
-  await card.getByRole("button", {name: "Save", exact: true}).click();
+  await card.getByRole("button", {name: "Retry saving", exact: true}).click();
   await expect(card.locator(".setting-message")).toHaveText("Saved");
 });
 
@@ -451,43 +466,41 @@ test("reset clears an override and displays the configured value", async ({ page
   const {frame} = await openStore(page);
   await frame.locator('.tab[data-tab="settings"]').click();
   const card = frame.locator('[data-field="relays"]');
-  await frame.locator("#setting-relays").fill("wss://override.example");
-  await card.getByRole("button", {name: "Save", exact: true}).click();
-  await expect(card.locator(".setting-source")).toHaveText("Saved on this device");
+  await addAddress(frame, "relays", "wss://override.example");
+  await expect(card.locator(".setting-message")).toHaveText("Saved");
   const reset = card.getByRole("button", {name: "Reset to configured value", exact: true});
   await reset.click();
   await expect(frame.locator("#toast")).toContainText("Press again to confirm");
   await reset.click();
   await expect(card.locator(".setting-message")).toHaveText("Configured value restored");
-  await expect(frame.locator("#setting-relays")).toHaveValue("wss://configured.example");
+  await expect(card.locator(".setting-url span")).toHaveText(["wss://configured.example"]);
   await expect(card.locator(".setting-source")).toHaveText("From your configuration");
-  expect(await frame.locator("body").evaluate(() => (window as any).testCalls)).toContainEqual({method: "settings.clear", params: {field: "relays"}});
 });
 
-test("empty lists, disabled toggles and disabled sync are real settings values", async ({ page }) => {
+test("empty lists, disabled toggles and disabled sync auto-save in the compatibility build", async ({ page }) => {
   const {frame} = await openStore(page, {legacy: true});
   await frame.locator('.tab[data-tab="settings"]').click();
   const relays = frame.locator('[data-field="relays"]');
-  await frame.locator("#setting-relays").fill("");
-  await relays.getByRole("button", {name: "Save", exact: true}).click();
+  await relays.getByRole("button", {name: "Remove wss://relay.example", exact: true}).click();
   await expect(relays.locator(".setting-message")).toHaveText("Saved");
   for (const field of ["discover_on_user_relays", "desktop_entries"]) {
     const card = frame.locator(`[data-field="${field}"]`);
     await card.getByRole("button", {name: "Off", exact: true}).click();
-    await card.getByRole("button", {name: "Save", exact: true}).click();
     await expect(card.locator(".setting-message")).toHaveText("Saved");
   }
-  const refresh = frame.locator('[data-field="social_refresh"]');
   await frame.locator("#setting-social_refresh").fill("0");
-  await refresh.getByRole("button", {name: "Save", exact: true}).click();
-  await expect(refresh.locator(".setting-message")).toHaveText("Saved");
+  await expect(frame.locator('[data-field="social_refresh"] .setting-message')).toHaveText("Saved");
+  await frame.locator("#setting-sync_id").fill("decks");
+  await expect(frame.locator('[data-field="sync_id"] .setting-message')).toHaveText("Saved");
+  await frame.locator("#setting-sync_id").fill("");
+  await expect(frame.locator('[data-field="sync_id"] .setting-message')).toHaveText("Saved");
   const calls = await frame.locator("body").evaluate(() => (window as any).testCalls);
-  expect(calls).toContainEqual({method: "settings.set", params: {field: "relays", value: []}});
-  expect(calls).toContainEqual({method: "settings.set", params: {field: "desktop_entries", value: false}});
-  expect(calls).toContainEqual({method: "settings.set", params: {field: "social_refresh", value: "0"}});
+  for (const [field, value] of [["relays", []], ["desktop_entries", false], ["social_refresh", "0"], ["sync_id", ""]]) {
+    expect(calls).toContainEqual({method: "settings.set", params: {field, value}});
+  }
 });
 
-test("older daemons expose supported settings and retain basic save controls", async ({ page }) => {
+test("older daemons expose supported settings and auto-save without inspection", async ({ page }) => {
   const {frame} = await openStore(page);
   await frame.locator("body").evaluate(() => {
     const w = window as any;
@@ -498,43 +511,50 @@ test("older daemons expose supported settings and retain basic save controls", a
   await expect(frame.locator(".setting-card")).toHaveCount(2);
   await expect(frame.locator("#settings-reload")).toBeHidden();
   await expect(frame.getByRole("button", {name: "Reset to configured value"}).first()).toBeHidden();
-  await frame.locator("#setting-relays").fill("wss://new.example");
-  const card = frame.locator('[data-field="relays"]');
-  await card.getByRole("button", {name: "Save", exact: true}).click();
-  await expect(card.locator(".setting-message")).toHaveText("Saved");
+  await addAddress(frame, "relays", "wss://new.example");
+  await expect(frame.locator('[data-field="relays"] .setting-message')).toHaveText("Saved");
 });
 
-test("a successful write followed by a failed read is reported as saved", async ({ page }) => {
+test("a successful auto-save followed by a failed read is not replayed", async ({ page }) => {
   const {frame} = await openStore(page);
   await frame.locator('.tab[data-tab="settings"]').click();
-  await frame.locator("#setting-relays").fill("wss://saved.example");
   await frame.locator("body").evaluate(() => { (window as any).failReadAfterSave = true; });
+  await addAddress(frame, "relays", "wss://saved.example");
   const card = frame.locator('[data-field="relays"]');
-  await card.getByRole("button", {name: "Save", exact: true}).click();
   await expect(card.locator(".setting-message")).toContainText("Change saved");
-  await expect(card.getByRole("button", {name: "Save", exact: true})).toBeDisabled();
-  expect(await frame.locator("body").evaluate(() => (window as any).testSettings.relays)).toEqual(["wss://saved.example"]);
+  await expect(card.getByRole("button", {name: "Retry saving", exact: true})).toBeHidden();
+  expect(await frame.locator("body").evaluate(() => (window as any).testCalls.filter((c: any) => c.method === "settings.set").length)).toBe(1);
 });
 
-test("saving one field and reloading configuration preserve other unsaved edits", async ({ page }) => {
+test("edits made during a save are queued and never overwritten by its snapshot", async ({ page }) => {
   const {frame} = await openStore(page);
   await frame.locator('.tab[data-tab="settings"]').click();
+  await frame.locator("body").evaluate(() => { (window as any).holdNextSave = true; });
+  await addAddress(frame, "relays", "first.example");
+  await expect.poll(() => frame.locator("body").evaluate(() => typeof (window as any).releaseSave)).toBe("function");
+  await addAddress(frame, "relays", "second.example");
+  await frame.locator('[data-field="theme"] [data-value="light"]').click();
   await frame.locator("#setting-sync_id").fill("my-decks");
-  await frame.locator("#setting-blossom_servers").fill("https://draft.example");
-  const sync = frame.locator('[data-field="sync_id"]');
-  await sync.getByRole("button", {name: "Save", exact: true}).click();
-  await expect(sync.locator(".setting-message")).toHaveText("Saved");
-  await expect(frame.locator("#setting-blossom_servers")).toHaveValue("https://draft.example");
-  await frame.locator("#settings-reload").click();
-  await expect(frame.locator("#toast")).toContainText("Press again to confirm");
-  await frame.locator("#settings-reload").click();
-  await expect.poll(() => frame.locator("body").evaluate(() => (window as any).testCalls.filter((c: any) => c.method === "settings.reload").length)).toBe(1);
-  await expect(frame.locator("#settings-refresh")).toBeEnabled();
-  await expect(frame.locator("#setting-blossom_servers")).toHaveValue("https://draft.example");
-  await frame.locator("#setting-sync_id").fill("");
-  await sync.getByRole("button", {name: "Save", exact: true}).click();
-  await expect(sync.locator(".setting-message")).toHaveText("Saved");
-  expect(await frame.locator("body").evaluate(() => (window as any).testCalls)).toContainEqual({method: "settings.set", params: {field: "sync_id", value: ""}});
+  await expect(frame.locator('[data-field="sync_id"] .setting-message')).toHaveText("Waiting to save…");
+  await frame.locator("body").evaluate(() => (window as any).releaseSave());
+  await expect(frame.locator('[data-field="relays"] .setting-message')).toHaveText("Saved");
+  await expect(frame.locator('[data-field="theme"] .setting-message')).toHaveText("Saved");
+  await expect(frame.locator('[data-field="sync_id"] .setting-message')).toHaveText("Saved");
+  expect(await frame.locator("body").evaluate(() => (window as any).testSettings.relays)).toEqual(["wss://relay.example", "wss://first.example", "wss://second.example"]);
+  await expect(frame.locator("#setting-sync_id")).toHaveValue("my-decks");
+});
+
+test("typing auto-save is debounced and survives tab changes", async ({ page }) => {
+  const {frame} = await openStore(page);
+  await frame.locator('.tab[data-tab="settings"]').click();
+  await frame.locator("#setting-sync_id").fill("d");
+  await frame.locator("#setting-sync_id").fill("decks");
+  await frame.locator('.tab[data-tab="account"]').click();
+  await expect.poll(() => frame.locator("body").evaluate(() => (window as any).testSettings.sync_id)).toBe("decks");
+  await frame.locator('.tab[data-tab="settings"]').click();
+  await expect(frame.locator("#setting-sync_id")).toHaveValue("decks");
+  const writes = await frame.locator("body").evaluate(() => (window as any).testCalls.filter((c: any) => c.method === "settings.set"));
+  expect(writes).toEqual([{method: "settings.set", params: {field: "sync_id", value: "decks"}}]);
 });
 
 test("settings loading can recover after the daemon is unavailable", async ({ page }) => {
@@ -545,5 +565,5 @@ test("settings loading can recover after the daemon is unavailable", async ({ pa
   await expect(frame.locator(".setting-card")).toHaveCount(0);
   await frame.locator("body").evaluate(() => { delete (window as any).testErrors["settings.inspect"]; });
   await frame.locator("#settings-refresh").click();
-  await expect(frame.locator(".setting-card")).toHaveCount(8);
+  await expect(frame.locator(".setting-card")).toHaveCount(7);
 });
