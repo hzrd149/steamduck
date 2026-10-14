@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -91,18 +92,52 @@ func ReleaseDir() (string, error) {
 }
 
 // sandboxArgs are shared by every WebKit window: X11 (gamescope composites
-// X11 clients), GPU and sound, and no network.
+// X11 clients), GPU, gamepads and sound, and no network.
+//
+// WebKit reads gamepads through libmanette from /dev/input, which the
+// sandbox only has with --device=input (or all, before Flatpak 1.15.6).
+// Without it navigator.getGamepads() stays empty and the Deck's controls
+// do nothing.
 //
 // WebKit's DMA-BUF renderer leaves the window blank inside the sandbox
 // under X11, so it is turned off.
-var sandboxArgs = []string{
-	"--socket=x11",
-	"--share=ipc",
-	"--device=dri",
-	"--socket=pulseaudio",
-	"--unshare=network",
-	"--env=GDK_BACKEND=x11",
-	"--env=WEBKIT_DISABLE_DMABUF_RENDERER=1",
+func sandboxArgs() []string {
+	return []string{
+		"--socket=x11",
+		"--share=ipc",
+		"--device=dri",
+		"--device=" + inputDevice(),
+		"--socket=pulseaudio",
+		"--unshare=network",
+		"--env=GDK_BACKEND=x11",
+		"--env=WEBKIT_DISABLE_DMABUF_RENDERER=1",
+	}
+}
+
+// inputDevice is the --device value that exposes /dev/input: "input" where
+// Flatpak knows it (1.15.6 and later), "all" otherwise.
+func inputDevice() string {
+	out, err := exec.Command("flatpak", "--version").Output()
+	if err == nil && versionAtLeast(strings.TrimPrefix(strings.TrimSpace(string(out)), "Flatpak "), 1, 15, 6) {
+		return "input"
+	}
+	return "all"
+}
+
+// versionAtLeast reports whether the dotted version v is at least
+// major.minor.patch. Unparsable parts count as zero.
+func versionAtLeast(v string, want ...int) bool {
+	parts := strings.Split(v, ".")
+	for i, w := range want {
+		n := 0
+		if i < len(parts) {
+			n, _ = strconv.Atoi(parts[i])
+		}
+		if n != w {
+			return n > w
+		}
+	}
+	return true
 }
 
 // WindowArgs are the `flatpak run` arguments that start kwakore's window
@@ -114,7 +149,7 @@ func WindowArgs(runtime, releaseDir string, w kwakrpc.AttachedWindow) []string {
 		"--command=" + filepath.Join(releaseDir, "kwaklet"),
 		"--filesystem=" + releaseDir + ":ro",
 	}
-	args = append(args, sandboxArgs...)
+	args = append(args, sandboxArgs()...)
 	for _, kv := range append(w.Env(), "WEBVIEW_PATH="+releaseDir) {
 		args = append(args, "--env="+kv)
 	}
@@ -136,7 +171,7 @@ func StoreArgs(runtime, exe, releaseDir, socket string, storeArgs []string) []st
 		"--filesystem=" + paths.DataDir() + ":create",
 		"--talk-name=org.freedesktop.Flatpak",
 	}
-	args = append(args, sandboxArgs...)
+	args = append(args, sandboxArgs()...)
 	args = append(args,
 		"--env=STEAMDUCK_IN_FLATPAK=1",
 		"--env=STEAMDUCK_HOST_EXE="+exe,

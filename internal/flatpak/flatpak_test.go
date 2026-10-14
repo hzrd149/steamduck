@@ -29,6 +29,9 @@ func TestWindowArgs(t *testing.T) {
 	if args[len(args)-1] != "org.gnome.Platform//50" {
 		t.Errorf("runtime must come last: %q", args)
 	}
+	if !slices.Contains(args, "--device=input") && !slices.Contains(args, "--device=all") {
+		t.Errorf("window needs /dev/input for gamepads: %q", args)
+	}
 	if slices.Contains(args, "--share=network") {
 		t.Errorf("window must not get network: %q", args)
 	}
@@ -55,6 +58,17 @@ func TestStoreArgs(t *testing.T) {
 	// a socket outside the runtime dir (testing) is exposed by path
 	if got := socketDir("/tmp/kwk/kwakore/daemon.sock"); got != "/tmp/kwk/kwakore" {
 		t.Errorf("socketDir = %q", got)
+	}
+}
+
+func TestVersionAtLeast(t *testing.T) {
+	for v, want := range map[string]bool{
+		"1.15.6": true, "1.16.0": true, "1.18.3": true, "2.0": true,
+		"1.15.5": false, "1.14.10": false, "1.15": false, "": false,
+	} {
+		if got := versionAtLeast(v, 1, 15, 6); got != want {
+			t.Errorf("versionAtLeast(%q) = %v, want %v", v, got, want)
+		}
 	}
 }
 
