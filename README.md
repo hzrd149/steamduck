@@ -21,15 +21,15 @@ Releases are built by `.github/workflows/release.yml`. They contain the static `
 ## How it fits together
 
 ```
-Steam ──runs──▶ steamduck launch --napplet ADDR ──napplet.launch──▶ kwakore.service ──spawns──▶ kwaklet window
-   ▲                    │  tags the window STEAM_GAME=<appid>                                       │
-   │                    └──────────── waits for window.closed ◀──────────── events.subscribe ◀─────┘
-   │
+Steam ──runs──▶ steamduck launch --napplet ADDR ──exec──▶ kwak run ADDR ──exec──▶ kwaklet window
+                                                            │  napplet.launch {attach:true}
+                                                            └──── socket becomes the window's wire ────▶ kwakore.service
+
 shortcuts.vdf ◀── steamduck-sync.service ◀── napplet.installed / uninstalled events
 ```
 
-- **Launching.** Kwakore's service spawns napplet windows, so they are outside the process tree Steam started. In game mode, gamescope would not show them. `steamduck launch` finds the window's processes through the `KWAKORE_INSTANCE_ID=<window_id>` in their environment. It then sets the `STEAM_GAME` X11 property gamescope uses to pick the visible window. It blocks until the window closes, so Steam shows the game as running for exactly that long. Steam's "Exit game" sends SIGTERM, which closes the window through `napplet.stop`.
-- **Display switching.** Kwakore opens windows on the display its service started with. Before every launch, steamduck makes the systemd user manager use the caller's display. If the daemon is running on a different display with no windows open, steamduck restarts it, which matters when switching between game and desktop mode.
+- **Launching.** Kwakore's attached launch, `kwak run`, lets the process Steam started become the napplet window. `steamduck launch` execs `kwak run ADDRESS`, which asks the daemon to prepare the window and then execs `kwaklet` on the same connection. The PID never changes, so the window runs on Steam's display with Steam's overlay, gamescope shows it as the game, Steam sees it exit, and "Exit game" ends it directly. Window diagnostics go to `~/.local/share/steamduck/steamduck.log`. "Play" in the store starts `kwak run` as its own child, so in game mode the window joins the store's session.
+- **Fallback for older kwakore.** A kwakore without `kwak run`, or `launch --try`, uses the legacy path. `napplet.launch` makes the daemon spawn the window. steamduck then moves the daemon to the caller's display, finds the window's processes by `KWAKORE_INSTANCE_ID` and sets the `STEAM_GAME` X11 property gamescope uses. It waits for `window.closed` and turns SIGTERM into `napplet.stop`. `STEAMDUCK_LEGACY_LAUNCH=1` forces this path.
 - **Shortcuts.** `steamduck-sync.service` follows kwakore's install and uninstall events and rewrites `userdata/*/config/shortcuts.vdf`. Only steamduck's own entries change: they are identified by their `launch --napplet` options or the store's `store` option. Steam's own file is kept as `shortcuts.vdf.steamduck.bak`. Grid art is never written over art you picked yourself.
 
 ## Commands

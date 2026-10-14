@@ -7,7 +7,7 @@
    - `steamduck-sync.service`;
    - a desktop entry for the store, used in desktop mode.
 2. **Store** (`internal/store`). This is plain HTML, CSS and JS, embedded and inlined into one document. The webview loads it with `SetHtml`, so it has no URL and no listening port. JS calls Go through one bound function, `steamduckCall(method, params)`. Errors come back as values, so the UI keeps the daemon's error codes. `--serve` exposes the same method table over loopback HTTP, guarded by a random token, for browser development. Controller input comes through the Gamepad API (Steam Input presents the Deck's controls as a standard pad) and arrow keys, with spatial focus navigation.
-3. **Steam integration** (`internal/steam`, `internal/library`, `internal/launcher`). See the README for the launch and tagging flow. Each shortcut's app ID is `crc32("\"exe\"" + key) | 0x80000000`, where the key is the napplet address. Using the address rather than the display name means renames keep playtime and artwork. An existing shortcut's app ID is never changed.
+3. **Steam integration** (`internal/steam`, `internal/library`, `internal/launcher`). See the README for the launch flow: `kwak run` (kwakore's attached launch, see `kwakore-attached-launch.md`), with the legacy daemon-spawned path and window tagging kept as a fallback. Each shortcut's app ID is `crc32("\"exe\"" + key) | 0x80000000`, where the key is the napplet address. Using the address rather than the display name means renames keep playtime and artwork. An existing shortcut's app ID is never changed.
 
 ## Decky Loader
 

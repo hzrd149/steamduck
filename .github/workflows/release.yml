@@ -28,7 +28,7 @@ env:
   # Kwakore publishes no releases yet, so it is built here from source.
   # Bump this to ship a newer kwakore.
   KWAKORE_REPO: hzrd149/kwakore
-  KWAKORE_REF: a2c114c0297a4fce802be43a37bb968432e30281
+  KWAKORE_REF: 3fe5936b3f38ab91fccc217939e65c5093f11e07
 
 jobs:
   test:

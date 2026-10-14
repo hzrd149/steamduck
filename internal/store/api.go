@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -28,6 +29,8 @@ type API struct {
 	OnSync func(ctx context.Context) (any, error)
 	// Quit closes the store window.
 	Quit func()
+	// Stderr receives the output of napplet windows the store starts.
+	Stderr *os.File
 
 	iconMu sync.Mutex
 	icons  map[string]string // address -> data URL ("" when none)
@@ -95,6 +98,14 @@ func (a *API) Call(ctx context.Context, method string, raw json.RawMessage) (any
 }
 
 func (a *API) launch(ctx context.Context, try bool, address string) (any, error) {
+	// Preferred: run the window as our own child (kwakore attached launch),
+	// so it stays in the store's Steam session.
+	if !try && launcher.SupportsRun() {
+		if err := launcher.StartRun(address, a.Stderr); err != nil {
+			return nil, err
+		}
+		return &kwakrpc.LaunchResult{Address: address, Outcome: "opened"}, nil
+	}
 	if err := launcher.EnsureSession(ctx, a.Client, a.Log); err != nil {
 		a.Log.Warn("update the service's display", "err", err)
 	}

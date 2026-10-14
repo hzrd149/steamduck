@@ -90,13 +90,18 @@ func main() {
 	}
 }
 
-// newLogger logs to stderr in a terminal. Steam discards a game's output,
-// so the commands Steam runs also log to steamduck.log.
+// logFile is steamduck.log, open when the command was started by Steam.
+var logFile *os.File
+
+// newLogger logs to stderr. Steam discards a game's output (often by
+// pointing it at /dev/null, which looks like a terminal), so the commands
+// Steam runs always log to steamduck.log as well.
 func newLogger(cmd string) *slog.Logger {
 	var w io.Writer = os.Stderr
-	if (cmd == "launch" || cmd == "store") && !isTerminal(os.Stderr) {
+	if cmd == "launch" || cmd == "store" {
 		if err := os.MkdirAll(paths.DataDir(), 0o700); err == nil {
 			if f, err := os.OpenFile(filepath.Join(paths.DataDir(), "steamduck.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+				logFile = f
 				w = io.MultiWriter(os.Stderr, f)
 			}
 		}
@@ -106,11 +111,6 @@ func newLogger(cmd string) *slog.Logger {
 		level = slog.LevelDebug
 	}
 	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: level})).With("cmd", cmd)
-}
-
-func isTerminal(f *os.File) bool {
-	fi, err := f.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 func client() (*kwakrpc.Client, error) {
@@ -283,6 +283,12 @@ func runLaunch(ctx context.Context, log *slog.Logger, args []string) error {
 	if *address == "" {
 		return errors.New("launch needs --napplet ADDRESS")
 	}
+	// Preferred: become the window ourselves (kwakore attached launch).
+	if !*try && launcher.SupportsRun() {
+		log.Info("launching attached", "napplet", *address)
+		return launcher.ExecRun(*address, logFile)
+	}
+
 	id := uint32(*appID)
 	if id == 0 {
 		id = launcher.AppIDFromEnv()
@@ -297,7 +303,7 @@ func runLaunch(ctx context.Context, log *slog.Logger, args []string) error {
 		return err
 	}
 	defer c.Close()
-	log.Info("launching", "napplet", *address, "app_id", id)
+	log.Info("launching through the daemon (kwak run unavailable)", "napplet", *address, "app_id", id)
 	return launcher.Run(ctx, c, launcher.Options{Address: *address, AppID: id, Try: *try, Log: log})
 }
 
@@ -312,7 +318,7 @@ func runStore(ctx context.Context, log *slog.Logger, args []string) error {
 		return err
 	}
 	defer c.Close()
-	api := &store.API{Client: c, Log: log, AppID: launcher.AppIDFromEnv()}
+	api := &store.API{Client: c, Log: log, AppID: launcher.AppIDFromEnv(), Stderr: logFile}
 	api.OnSync = func(ctx context.Context) (any, error) {
 		s, err := newSyncer(log, c)
 		if err != nil {
