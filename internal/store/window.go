@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	webview "github.com/abemedia/go-webview"
 
@@ -62,7 +63,20 @@ func RunWindow(ctx context.Context, api *API, debug bool) error {
 	defer w.Destroy()
 	w.SetTitle("Steamduck Store")
 	w.SetSize(1280, 800, webview.HintNone)
-	api.Quit = w.Terminate
+
+	// Closing the window from another goroutine (a signal, the UI's quit)
+	// must not touch the webview once Run has returned: it is destroyed
+	// then, and a late Dispatch crashes the process.
+	var mu sync.Mutex
+	running := true
+	terminate := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if running {
+			w.Dispatch(w.Terminate)
+		}
+	}
+	api.Quit = terminate
 
 	if err := w.Bind("steamduckCall", func(method string, params json.RawMessage) reply {
 		return api.dispatch(ctx, method, params)
@@ -74,10 +88,18 @@ func RunWindow(ctx context.Context, api *API, debug bool) error {
 		return err
 	}
 	w.SetHtml(page)
+	finished := make(chan struct{})
 	go func() {
-		<-ctx.Done()
-		w.Dispatch(w.Terminate)
+		select {
+		case <-ctx.Done():
+			terminate()
+		case <-finished:
+		}
 	}()
 	w.Run()
+	mu.Lock()
+	running = false
+	mu.Unlock()
+	close(finished)
 	return nil
 }
