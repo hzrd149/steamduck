@@ -74,14 +74,20 @@ func (a *API) Call(ctx context.Context, method string, raw json.RawMessage) (any
 		return a.Client.Detail(ctx, p.Address)
 	case "icon":
 		return a.icon(ctx, p.Address), nil
+	// Installs and updates get their own connection, so browsing goes on
+	// while they download.
 	case "install":
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 		defer cancel()
-		return a.Client.Install(ctx, p.Address)
+		c := a.Client.Fork()
+		defer c.Close()
+		return c.Install(ctx, p.Address)
 	case "update":
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 		defer cancel()
-		return nil, a.Client.Update(ctx, p.Address)
+		c := a.Client.Fork()
+		defer c.Close()
+		return nil, c.Update(ctx, p.Address)
 	case "uninstall":
 		return nil, a.Client.Uninstall(ctx, p.Address)
 	case "launch", "try":
@@ -96,6 +102,9 @@ func (a *API) Call(ctx context.Context, method string, raw json.RawMessage) (any
 			a.Quit()
 		}
 		return nil, nil
+	}
+	if res, ok, err := a.callAccount(ctx, method, raw); ok {
+		return res, err
 	}
 	return nil, fmt.Errorf("unknown method %q", method)
 }

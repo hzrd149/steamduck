@@ -124,3 +124,34 @@ button:disabled { opacity: .5; cursor: default; }
   animation: shimmer 1s linear infinite;
 }
 @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+.panel { background: var(--panel); border-radius: 16px; padding: 22px 26px; margin: 8px 0 20px; max-width: 900px; }
+.panel h2 { margin: 0 0 6px; font-size: 22px; }
+.panel h3 { margin: 0 0 6px; }
+.panel > .muted { margin: 0 0 16px; }
+.small { font-size: 14px; }
+.mono { font-family: ui-monospace, "Noto Sans Mono", monospace; font-size: 14px; word-break: break-all; }
+.signer-state { display: flex; align-items: center; gap: 14px; }
+.signer-state .dot { flex: none; width: 14px; height: 14px; }
+.signer-state .dot.ok { background: var(--ok); }
+.signer-state .dot.bad { background: var(--bad); }
+.signer-mode { font-weight: 700; font-size: 20px; }
+.subpanel { display: flex; gap: 24px; align-items: flex-start; margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--panel-2); }
+.subpanel[hidden] { display: none; }
+.subpanel.column { flex-direction: column; gap: 10px; align-items: stretch; }
+.subpanel .actions { margin-top: 8px; }
+.qr { width: 240px; height: 240px; background: #fff; border-radius: 12px; padding: 8px; image-rendering: pixelated; flex: none; }
+#secret-input {
+  background: var(--bg); border: 2px solid var(--panel-2); border-radius: var(--radius); padding: 10px 14px;
+  user-select: text;
+}
+.segmented { display: inline-flex; background: var(--bg); border-radius: 999px; padding: 4px; gap: 4px; }
+.segmented button { background: none; border: 0; border-radius: 999px; padding: 8px 20px; color: var(--muted); font-weight: 600; }
+.segmented button[aria-pressed="true"] { background: var(--panel-2); color: var(--text); }
+.perms { margin-top: 24px; }
+.perms h3 { margin: 0 0 10px; font-size: 16px; color: var(--muted); }
+.perm { display: flex; align-items: center; gap: 14px; padding: 6px 0; }
+.perm .what { flex: 1; }
+.perm .allow { color: var(--ok); }
+.perm .deny { color: var(--bad); }
+.perm button { padding: 6px 14px; }

@@ -13,6 +13,7 @@
     <span class="hint" aria-hidden="true">L1</span>
     <button class="tab" data-tab="library" role="tab">Library</button>
     <button class="tab" data-tab="discover" role="tab">Discover</button>
+    <button class="tab" data-tab="account" role="tab">Account</button>
     <span class="hint" aria-hidden="true">R1</span>
   </nav>
   <div class="status" id="status" title="kwakore service"><span class="dot"></span><span id="status-text">Connecting…</span></div>
@@ -37,6 +38,50 @@
     <p class="empty" id="discover-empty" hidden>Nothing found. Try refreshing from relays.</p>
     <button id="more" class="secondary more" hidden>Load more</button>
   </section>
+
+  <section id="account" class="view" hidden>
+    <div class="panel">
+      <h2>Nostr signer</h2>
+      <p class="muted">Napplets use this key to sign in, post and send messages. Each one still asks before it signs anything.</p>
+      <div class="signer-state">
+        <span class="dot" id="signer-dot"></span>
+        <div>
+          <div id="signer-mode" class="signer-mode">Loading…</div>
+          <div id="signer-npub" class="mono muted"></div>
+        </div>
+      </div>
+      <div class="actions" id="signer-actions"></div>
+
+      <div id="pair" class="subpanel" hidden>
+        <img id="pair-qr" class="qr" alt="Pairing QR code">
+        <div>
+          <h3>Scan with your signer app</h3>
+          <p class="muted">Open a NIP-46 signer such as Amber or nsec.app on your phone and scan this code. The offer lasts two minutes.</p>
+          <p class="muted small">Relay: <span id="pair-relay"></span></p>
+          <div class="actions"><button id="pair-cancel" class="secondary">Cancel</button></div>
+        </div>
+      </div>
+
+      <form id="secret-form" class="subpanel column" hidden>
+        <label for="secret-input" id="secret-label"></label>
+        <input id="secret-input" autocomplete="off" spellcheck="false">
+        <p class="muted small" id="secret-help"></p>
+        <div class="actions">
+          <button type="submit" class="primary" id="secret-submit">Connect</button>
+          <button type="button" class="secondary" id="secret-cancel">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>Napplet theme</h2>
+      <div class="segmented" id="theme">
+        <button data-value="system">System</button>
+        <button data-value="light">Light</button>
+        <button data-value="dark">Dark</button>
+      </div>
+    </div>
+  </section>
 </main>
 
 <div id="detail" class="detail" hidden role="dialog" aria-modal="true" aria-labelledby="d-name">
@@ -52,6 +97,10 @@
     <p id="d-desc" class="desc"></p>
     <dl id="d-meta" class="meta"></dl>
     <div class="actions" id="d-actions"></div>
+    <div id="d-perms" class="perms" hidden>
+      <h3>Saved permissions</h3>
+      <div id="d-perm-list"></div>
+    </div>
     <div class="footer-hint"><span class="hint">B</span> Back</div>
   </div>
 </div>

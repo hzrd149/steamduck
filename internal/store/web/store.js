@@ -26,7 +26,7 @@ async function call(method, params) {
 
 function describeError(e) {
   if (e.reason === "session_unavailable") return "kwakore has no display to open windows on. Run `steamduck doctor`.";
-  if (e.reason === "signer_unavailable") return "This needs a Nostr signer. Set one up with `kwak signer`.";
+  if (e.reason === "signer_unavailable") return "This needs a Nostr signer. Set one up in Account.";
   switch (e.code) {
     case 1003: return "kwakore is busy with this napplet. Try again in a moment.";
     case 1004: return "Unavailable: the relays or the kwakore service did not answer.";
@@ -95,6 +95,8 @@ function authorOf(item) {
 
 // ---- state ----
 
+const TABS = ["library", "discover", "account"];
+
 const state = {
   tab: "library",
   installed: new Map(), // address -> item
@@ -161,9 +163,8 @@ async function loadDiscover(append, refresh) {
 function showTab(name) {
   state.tab = name;
   for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t.dataset.tab === name));
-  $("#library").hidden = name !== "library";
-  $("#discover").hidden = name !== "discover";
-  const load = name === "library" ? loadLibrary() : loadDiscover(false, false);
+  for (const v of TABS) $("#" + v).hidden = name !== v;
+  const load = name === "library" ? loadLibrary() : name === "discover" ? loadDiscover(false, false) : loadAccount();
   load.catch((err) => toast(err.message, true)).finally(() => focusFirst());
 }
 
@@ -172,11 +173,16 @@ function showTab(name) {
 let detailItem = null;
 let detailReturnFocus = null;
 
-function button(label, cls, fn) {
+// confirm, when given, asks for a second press first. It runs before the
+// button turns busy: a disabled button would swallow that press.
+function button(label, cls, fn, confirm) {
   const b = document.createElement("button");
   b.className = cls;
   b.textContent = label;
-  b.addEventListener("click", () => busy(b, fn));
+  b.addEventListener("click", async () => {
+    if (confirm && !(await confirmAction(confirm))) return;
+    busy(b, fn);
+  });
   return b;
 }
 
@@ -211,8 +217,52 @@ async function openDetail(item) {
   row("Address", item.address);
 
   renderActions();
+  $("#d-perms").hidden = true;
+  if (state.installed.has(item.address)) loadPermissions(item);
   $("#detail").hidden = false;
   focusFirst($("#detail"));
+}
+
+const PERMISSION_LABEL = {
+  sign: "Sign events", encrypt: "Encrypt messages", decrypt: "Decrypt messages", publish: "Publish to relays",
+  open_link: "Open links", save_file: "Save files", copy_text: "Copy text", upload: "Upload files",
+  fetch: "Fetch from the web", notify: "Show notifications", media: "Play media", dispatch: "Run actions",
+};
+
+// Saved allow/deny answers for an installed napplet. Forgetting one makes
+// the napplet ask again next time.
+async function loadPermissions(item) {
+  let res;
+  try {
+    res = await call("permissions.get", { address: item.address });
+  } catch {
+    return;
+  }
+  if (detailItem !== item) return;
+  const list = $("#d-perm-list");
+  list.replaceChildren();
+  for (const rule of res.saved_rules) {
+    const row = document.createElement("div");
+    row.className = "perm";
+    const what = document.createElement("span");
+    what.className = "what";
+    what.textContent = (PERMISSION_LABEL[rule.permission] || rule.permission) + (rule.subject ? " · " + rule.subject : "");
+    const decision = document.createElement("span");
+    decision.className = rule.decision;
+    decision.textContent = rule.decision === "allow" ? "Allowed" : "Denied";
+    const forget = button("Forget", "secondary", async () => {
+      await call("permissions.clear", { address: item.address, ...rule });
+      const next = (row.nextElementSibling || row.previousElementSibling)?.querySelector("button");
+      row.remove();
+      $("#d-perms").hidden = list.children.length === 0;
+      if (next) next.focus();
+      else focusFirst($("#detail"));
+      toast("It will ask again next time");
+    });
+    row.append(what, decision, forget);
+    list.append(row);
+  }
+  $("#d-perms").hidden = res.saved_rules.length === 0;
 }
 
 function renderActions() {
@@ -234,13 +284,12 @@ function renderActions() {
       }));
     }
     actions.append(button("Uninstall", "danger", async () => {
-      if (!(await confirmAction("Uninstall " + (item.name || "this napplet") + "? Its saved data is removed."))) return;
       await call("uninstall", { address: item.address });
       toast("Uninstalled");
       await loadLibrary();
       if (state.tab === "discover") renderCards($("#discover-grid"), state.discover, { library: false });
       closeDetail();
-    }));
+    }, "Uninstall " + (item.name || "this napplet") + "? Its saved data is removed."));
   } else {
     const install = button("Install", "primary", async () => {
       await call("install", { address: item.address });
@@ -286,6 +335,141 @@ function closeDetail() {
   detailItem = null;
   if (detailReturnFocus && document.contains(detailReturnFocus)) detailReturnFocus.focus();
   else focusFirst();
+}
+
+// ---- account: the Nostr signer and settings ----
+
+const MODE_LABEL = { none: "Not signed in", nsec: "Private key", bunker: "Remote signer", system: "System signer" };
+
+async function loadAccount() {
+  const [signer, settings] = await Promise.all([call("signer.status"), call("settings.get")]);
+  renderSigner(signer);
+  renderTheme(settings.theme);
+}
+
+function renderSigner(s) {
+  const connected = s.connection_state === "connected";
+  $("#signer-dot").className = "dot " + (s.mode === "none" ? "" : connected ? "ok" : "bad");
+  $("#signer-mode").textContent = MODE_LABEL[s.mode] + (s.mode !== "none" && !connected ? " (not connected)" : "");
+  $("#signer-npub").textContent = s.npub || (s.mode === "none" ? "Napplets that need a key will not be able to sign in." : "");
+
+  const actions = $("#signer-actions");
+  actions.replaceChildren();
+  const signedIn = s.mode !== "none";
+  actions.append(
+    button("Connect a signer app", signedIn ? "secondary" : "primary", startPair),
+    button("Paste a bunker link", "secondary", () => openSecretForm("bunker")),
+    button("Use a private key", "secondary", () => openSecretForm("nsec")),
+    button("Use the system signer", "secondary", switchSystem),
+  );
+  if (signedIn) {
+    actions.append(button("Sign out", "danger", async () => {
+      renderSigner(await call("signer.switch", { mode: "none" }));
+      toast("Signed out");
+      focusFirst();
+    }, "Sign out? Open napplets close, and a saved private key or bunker link is forgotten."));
+  }
+}
+
+// nostrconnect: show a QR code for the signer app, then wait for its answer.
+let pairing = false;
+async function startPair() {
+  const offer = await call("signer.pair.start");
+  pairing = true;
+  closeSecretForm();
+  $("#pair-qr").src = offer.qr;
+  $("#pair-relay").textContent = offer.relay;
+  $("#pair").hidden = false;
+  $("#pair-cancel").focus();
+  $("#pair").scrollIntoView({ block: "nearest" });
+  try {
+    const s = await call("signer.pair.wait");
+    if (!pairing) return;
+    renderSigner(s);
+    toast("Connected to your signer");
+  } catch (err) {
+    if (pairing) toast(err.code === 1008 ? "The pairing offer expired. Try again." : err.message, true);
+  } finally {
+    if (pairing) hidePair();
+  }
+}
+
+function hidePair() {
+  pairing = false;
+  $("#pair").hidden = true;
+  $("#pair-qr").removeAttribute("src");
+  focusFirst();
+}
+
+function cancelPair() {
+  hidePair();
+  call("signer.pair.cancel").catch(() => {});
+}
+
+const SECRET_FORMS = {
+  bunker: {
+    label: "Bunker link",
+    placeholder: "bunker://…",
+    help: "From your remote signer (nsec.app, Amber, nsecBunker). Press Steam + X for the keyboard.",
+    valid: (v) => v.startsWith("bunker://"),
+    invalid: "A bunker link starts with bunker://",
+  },
+  nsec: {
+    label: "Private key",
+    placeholder: "nsec1…",
+    help: "Your key is stored by kwakore in your home directory, readable only by you. A signer app is safer.",
+    valid: (v) => v.startsWith("nsec1"),
+    invalid: "A private key starts with nsec1",
+  },
+};
+let secretMode = null;
+
+function openSecretForm(mode) {
+  if (pairing) cancelPair();
+  const f = SECRET_FORMS[mode];
+  secretMode = mode;
+  $("#secret-label").textContent = f.label;
+  $("#secret-help").textContent = f.help;
+  const input = $("#secret-input");
+  input.type = mode === "nsec" ? "password" : "text";
+  input.placeholder = f.placeholder;
+  input.value = "";
+  $("#secret-form").hidden = false;
+  input.focus();
+}
+
+function closeSecretForm() {
+  if ($("#secret-form").hidden) return;
+  secretMode = null;
+  $("#secret-input").value = "";
+  $("#secret-form").hidden = true;
+  focusFirst();
+}
+
+async function submitSecret() {
+  const f = SECRET_FORMS[secretMode];
+  const secret = $("#secret-input").value.trim();
+  if (!f.valid(secret)) throw new Error(f.invalid);
+  let s;
+  try {
+    s = await call("signer.switch", { mode: secretMode, secret });
+  } catch (err) {
+    if (err.code === 1004) throw new Error("Could not connect with that " + f.label.toLowerCase() + ".");
+    throw err;
+  }
+  closeSecretForm();
+  renderSigner(s);
+  toast(s.connection_state === "connected" ? "Signed in" : "Saved, but not connected yet");
+}
+
+async function switchSystem() {
+  const s = await call("signer.switch", { mode: "system" });
+  renderSigner(s);
+  toast(s.connection_state === "connected" ? "Using the system signer" : "No system signer is answering; kwakore keeps trying.");
+}
+
+function renderTheme(theme) {
+  for (const b of $("#theme").children) b.setAttribute("aria-pressed", String(b.dataset.value === theme));
 }
 
 // ---- controller and keyboard navigation ----
@@ -334,13 +518,14 @@ function move(dx, dy) {
 
 function back() {
   if (!$("#detail").hidden) return closeDetail();
+  if (!$("#pair").hidden) return cancelPair();
+  if (!$("#secret-form").hidden) return closeSecretForm();
   if (document.activeElement === $("#search")) return focusFirst();
 }
 
 function cycleTab(step) {
   if (!$("#detail").hidden) return;
-  const tabs = ["library", "discover"];
-  showTab(tabs[(tabs.indexOf(state.tab) + step + tabs.length) % tabs.length]);
+  showTab(TABS[(TABS.indexOf(state.tab) + step + TABS.length) % TABS.length]);
 }
 
 document.addEventListener("keydown", (e) => {
@@ -423,6 +608,19 @@ $("#sync").addEventListener("click", (e) => busy(e.currentTarget, async () => {
     : "Steam shortcuts updated (" + (r?.shortcut_count ?? 0) + ")");
 }));
 
+$("#pair-cancel").addEventListener("click", cancelPair);
+$("#secret-cancel").addEventListener("click", closeSecretForm);
+$("#secret-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  busy($("#secret-submit"), submitSecret);
+});
+for (const b of $("#theme").children) {
+  b.addEventListener("click", () => busy(b, async () => {
+    await call("settings.set", { field: "theme", value: b.dataset.value });
+    renderTheme(b.dataset.value);
+  }));
+}
+
 async function refreshStatus() {
   const el = $("#status");
   try {
@@ -437,4 +635,5 @@ async function refreshStatus() {
 
 refreshStatus();
 setInterval(refreshStatus, 15000);
-showTab(new URLSearchParams(location.hash.slice(1)).get("tab") === "discover" ? "discover" : "library");
+const startTab = new URLSearchParams(location.hash.slice(1)).get("tab");
+showTab(TABS.includes(startTab) ? startTab : "library");
