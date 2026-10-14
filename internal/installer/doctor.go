@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/hzrd149/steamduck/internal/hostlib"
 	"github.com/hzrd149/steamduck/internal/paths"
 )
 
@@ -43,25 +44,13 @@ func OSRelease() map[string]string {
 // IsSteamOS reports whether this is SteamOS.
 func IsSteamOS() bool { return OSRelease()["ID"] == "steamos" }
 
-// libDirs are where SteamOS (Arch layout) and other distributions keep
-// shared libraries.
-var libDirs = []string{"/usr/lib", "/usr/lib64", "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/lib/x86_64-linux-gnu"}
-
 // FindLib returns the path of a shared library by soname, or "".
-func FindLib(soname string) string {
-	for _, d := range libDirs {
-		p := filepath.Join(d, soname)
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
-}
+func FindLib(soname string) string { return hostlib.Find(soname) }
 
 // Runtime libraries kwakore's window program loads.
 const (
-	LibWebKit = "libwebkit2gtk-4.1.so.0"
-	LibSDL2   = "libSDL2-2.0.so.0"
+	LibWebKit = hostlib.WebKit
+	LibSDL2   = hostlib.SDL2
 )
 
 // Doctor checks everything steamduck needs, without changing anything.
