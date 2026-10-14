@@ -22,6 +22,7 @@ npm run build
 | `dist/store-legacy/index.html` | Compatibility build for the existing standalone window and loopback development server. |
 | `internal/store/built/napplet.html` | Checked-in production artifact, embedded by Go and exposed through `store.NappletPage()`. |
 | `internal/store/built/legacy.html` | Checked-in compatibility artifact, returned by the current `store.Page()`. |
+| `internal/store/built/steamduck.js` | Runtime-injected NAP-STEAMDUCK prelude, returned by `store.SteamduckPrelude()`. |
 
 `scripts/verify-store-build.mjs` verifies the artifact hashes, declared domains,
 absence of external runtime assets and absence of compatibility transport in
@@ -49,16 +50,39 @@ Optional domains are detected by their actual injected presence:
 - `theme`: the published `@napplet/nap/theme/sdk` helpers apply initial colors
   and subsequent theme changes. No fonts or assets are fetched from the network.
 
+- `identity`: the shell-user profile, follow and relay lists, badges, received
+  zaps, mutes, blocks and public categorized lists. The Account tab takes an
+  initial public-key snapshot and responds to `identity.changed`; stale reads
+  and image results are discarded when accounts change.
+- `relay`: profile editing signs and publishes kind 0 through Kwakore. The editor
+  reads the latest raw metadata, preserves unknown fields and event tags, and
+  merges only changed fields into a fresh read before publishing. Signer denial
+  leaves edits available for retry. Private keys never enter the editor.
+- `resource`: profile and badge image bytes come through runtime mediation.
+  Only bounded raster images are rendered, as data URLs. Without this capability,
+  the profile uses placeholder artwork and makes no direct network requests.
+- `intent`: “Open profile app” and social account buttons dispatch
+  `napplet:profile/open` with the selected public key.
+
+The pinned SDK and Kwakore implementation have no `NAP-PROFILE` domain. Profile
+reads are part of `NAP-IDENTITY`; updates use `NAP-RELAY`, and profile app routing
+uses `NAP-INTENT` / the `profile` archetype. The app imports SDK-only entrypoints
+and relies on the host's injected domains. Missing optional capabilities keep
+existing sign-in and profile-reading behavior available. Received zap amounts
+are converted from millisats to sats; these are public receipts, not a wallet
+balance. Social lists are read-only, and private list contents are not decrypted.
+
 The pinned published `@napplet/nap` 0.33.0 package does not yet export the draft
 GAMEPAD SDK. The app therefore consumes `window.napplet.gamepad` directly behind
 a small typed controller adapter. It can move to the official GAMEPAD SDK when
 that entrypoint is published; the required runtime contract is unchanged.
 
-Kwakore integration is still pending. The native host must launch this HTML as
-its trusted built-in store, inject the custom API, and provide the standard
-domains through the shared session. The implementation plan is in the
-[Kwakore handoff](kwakore-custom-nap-handoff.md). No Kwakore runtime changes or
-production launch-path switch are part of this frontend migration.
+Kwakore now supports native built-ins and custom domains. The separately built
+[NAP-STEAMDUCK binding](nap-steamduck-binding.md) targets its lexical private
+transport. Steamduck's native registration, launch and handler adapter are still
+pending, along with the deadline/response-limit issues recorded in that guide.
+The original [Kwakore handoff](kwakore-custom-nap-handoff.md) is proposal history;
+the new runtime's native-built-in documentation defines its implemented contract.
 
 ## Compatibility and live development
 
@@ -86,6 +110,33 @@ Vite proxies `/api` to `127.0.0.1:8080`; requests retain the backend's token che
 The compatibility adapter is available only in the legacy build/development mode.
 It never replaces a real injected NAP-STEAMDUCK domain.
 
+## Kwakore settings page
+
+The Settings tab edits every non-secret mutable daemon setting: `relays`,
+`blossom_servers`, `discover_on_user_relays`, `theme`, `desktop_entries`,
+`gnome_search`, `sync_id` and `social_refresh`. Signer credentials and account
+management remain on the Account tab. The page works through NAP-STEAMDUCK in
+the native runtime and through the existing compatibility transport.
+
+Each field has its own Save and Discard controls; drafts survive tab changes.
+Settings are persisted independently, so saving one field does not overwrite
+other unsaved edits. The page reads actual effective values after mutations and
+reports an acknowledged write separately from a failed verification read.
+
+Relay and Blossom lists take one address per line, preserve priority order, and
+normalize host casing, schemes, ports and duplicate entries. Bare relay hosts
+use `wss://`; bare Blossom hosts use `https://`. Relays require `wss://`, while
+Blossom supports `https://` and `http://`. Credentials, query strings and
+fragments are rejected. Empty arrays, `false`, an empty sync name and a zero
+social-refresh interval are explicit settings, rather than resets.
+
+`settings.inspect` shows each field’s source. Reset removes an override through
+`settings.clear`, revealing the configured or built-in value; it does not write
+hard-coded defaults. Reload configuration uses `settings.reload`. Older daemons
+without inspection fall back to `settings.get`, showing only returned fields
+and hiding unsupported reset/reload controls. Settings are local daemon
+preferences; editing discovery relays does not publish a Nostr relay-list event.
+
 ## Verification
 
 ```sh
@@ -98,7 +149,9 @@ go test ./...
 Browser tests load the production artifact inside an opaque `allow-scripts`
 iframe with restricted CSP and injected test domains. They cover store/account
 calls, theme integration, missing/incompatible APIs, public errors, controller
-focus isolation and the separate compatibility artifact. They also reject
+focus isolation and the separate compatibility artifact. Account tests cover
+identity-driven refresh, late results after switching accounts, mediated images,
+public social data, profile intents, metadata preservation and denied signing. They also reject
 unexpected network requests and native gamepad polling from the napplet.
 
 These tests use a mock NAP-STEAMDUCK host, not an implemented Kwakore extension.

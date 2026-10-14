@@ -69,12 +69,35 @@
 .steps li { margin-bottom: 6px; }
 .m-form { display: flex; flex-direction: column; gap: 10px; }
 .m-form label { font-weight: 600; }
-.m-form input {
+.m-form input, .m-form textarea {
   background: var(--bg); border: 2px solid var(--panel-2); border-radius: var(--radius); padding: 10px 14px;
   user-select: text;
 }
-.m-form input:focus { border-color: var(--focus); }
+.m-form input:focus, .m-form textarea:focus { border-color: var(--focus); }
 .m-form .muted { margin: 0; }
 .m-error { color: var(--bad); margin: 8px 0 0; }
 .m-error[hidden] { display: none; }
 .modal .qr:not([src]) { visibility: hidden; }
+
+.profile-actions { padding: 18px 26px 0; flex-wrap: wrap; }
+.social-tabs, .list-types { flex-wrap: wrap; gap: 6px; }
+.social-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--panel-2); }
+.social-row > span { min-width: 0; overflow-wrap: anywhere; user-select: text; }
+.social-row button { flex: none; }
+.social-entry, .social-zap p, .social-badge p { overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
+.social-badge { padding: 12px 0; }
+.social-badge img { width: 72px; height: 72px; object-fit: contain; }
+.social-badge h3 { margin: 8px 0; }
+.profile-editor textarea { resize: vertical; min-height: 90px; }
+@media (max-width: 700px) {
+  .profile-body { flex-wrap: wrap; gap: 12px; padding: 0 18px; }
+  .profile-head { min-width: 160px; }
+  .profile-body > button { margin-left: auto; }
+  .avatar { width: 96px; height: 96px; }
+  .profile-banner { height: 140px; }
+  .profile-facts { grid-template-columns: 1fr; gap: 4px; }
+  .profile-facts dd { margin-bottom: 8px; }
+  .social-row { flex-wrap: wrap; }
+  .modal { padding: 12px; }
+  .modal-card { padding: 20px; }
+}

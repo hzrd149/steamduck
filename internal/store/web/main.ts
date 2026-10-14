@@ -1,7 +1,9 @@
 import "./store.css";
 import "./account.css";
+import "./settings.css";
 import { installLegacyAdapter } from "./legacy";
 import { requireStore } from "./api";
+import { initSettings } from "./settings";
 import { initAccount } from "./account.js";
 import { startStore } from "./store.js";
 import { themeGet, themeOnChanged } from "@napplet/nap/theme/sdk";
@@ -22,6 +24,7 @@ async function start(): Promise<void> {
   try {
     await requireStore();
     initAccount();
+    initSettings();
     startStore();
     if (window.napplet?.theme) {
       const subscription = themeOnChanged(applyTheme);

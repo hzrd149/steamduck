@@ -12,7 +12,7 @@ export function installLegacyAdapter(): void {
   const methods = [
     "status", "discover", "installed", "detail", "icon", "install", "update", "uninstall", "launch", "try", "sync", "quit",
     "signer.status", "signer.switch", "signer.pair.start", "signer.pair.wait", "signer.pair.cancel", "profile.get",
-    "permissions.get", "permissions.clear", "settings.get", "settings.set", "napplet.social", "napplet.reactions",
+    "permissions.get", "permissions.clear", "settings.get", "settings.set", "settings.inspect", "settings.clear", "settings.reload", "napplet.social", "napplet.reactions",
     "napplet.comments", "napplet.mentions", "napplet.zaps", "napplet.vote", "napplet.react", "napplet.comment",
     "napplet.delete", "napplet.share", "napplet.zap",
   ];

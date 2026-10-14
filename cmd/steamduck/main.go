@@ -390,10 +390,11 @@ func runStore(ctx context.Context, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("store", flag.ExitOnError)
 	serve := fs.String("serve", "", "serve the UI over HTTP on this loopback address instead of opening a window")
 	debug := fs.Bool("debug", false, "enable the webview inspector")
+	legacy := fs.Bool("legacy-window", false, "use the standalone compatibility store instead of the built-in napplet")
 	_ = fs.Parse(args)
 
 	inSandbox := os.Getenv("STEAMDUCK_IN_FLATPAK") != "" && flatpak.InSandbox()
-	if !inSandbox && *serve == "" {
+	if !inSandbox && *serve == "" && *legacy {
 		cfg, err := paths.LoadConfig()
 		if err != nil {
 			return err
@@ -410,6 +411,11 @@ func runStore(ctx context.Context, log *slog.Logger, args []string) error {
 		return err
 	}
 	defer c.Close()
+	if *serve == "" && !*legacy {
+		native := c.WithoutRetry()
+		defer native.Close()
+		c = native
+	}
 	api := &store.API{Client: c, Log: log, AppID: launcher.AppIDFromEnv(), Stderr: logFile}
 	api.OnSync = func(ctx context.Context) (any, error) {
 		s, err := newSyncer(log, c)
@@ -430,7 +436,17 @@ func runStore(ctx context.Context, log *slog.Logger, args []string) error {
 	if *serve != "" {
 		return store.Serve(ctx, api, *serve, func(url string) { fmt.Println("store UI:", url) })
 	}
-	return store.RunWindow(ctx, api, *debug)
+	if *legacy {
+		return store.RunWindow(ctx, api, *debug)
+	}
+	if inSandbox {
+		return fmt.Errorf("the native store broker must run on the host; start steamduck store outside Flatpak")
+	}
+	cfg, err := paths.LoadConfig()
+	if err != nil {
+		return err
+	}
+	return store.RunBuiltin(ctx, api, cfg, *debug)
 }
 
 // execStoreInFlatpak replaces this process with the store running inside

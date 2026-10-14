@@ -48,7 +48,7 @@ func (a *API) callSocial(ctx context.Context, method string, raw json.RawMessage
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	c := a.Client.Fork()
+	c := a.callClient(ctx).Fork()
 	defer c.Close()
 	var out json.RawMessage
 	if err := c.Call(ctx, method, raw, &out); err != nil {

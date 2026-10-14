@@ -45,15 +45,30 @@ type addressParams struct {
 	Address string `json:"address"`
 }
 
+type callClientKey struct{}
+
+func (a *API) callClient(ctx context.Context) *kwakrpc.Client {
+	if client, ok := ctx.Value(callClientKey{}).(*kwakrpc.Client); ok {
+		return client
+	}
+	return a.Client
+}
+
 // Call dispatches one UI request.
 func (a *API) Call(ctx context.Context, method string, raw json.RawMessage) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	client := a.Client.Fork()
+	defer client.Close()
+	ctx = context.WithValue(ctx, callClientKey{}, client)
 	var p addressParams
 	if len(raw) > 0 && string(raw) != "null" {
 		_ = json.Unmarshal(raw, &p)
 	}
 	switch method {
 	case "status":
-		return a.Client.Status(ctx)
+		return a.callClient(ctx).Status(ctx)
 	case "discover":
 		var dp kwakrpc.DiscoverParams
 		if len(raw) > 0 {
@@ -67,13 +82,13 @@ func (a *API) Call(ctx context.Context, method string, raw json.RawMessage) (any
 		if dp.Refresh {
 			ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 			defer cancel()
-			return a.Client.Discover(ctx, dp)
+			return a.callClient(ctx).Discover(ctx, dp)
 		}
-		return a.Client.Discover(ctx, dp)
+		return a.callClient(ctx).Discover(ctx, dp)
 	case "installed":
-		return a.Client.Installed(ctx)
+		return a.callClient(ctx).Installed(ctx)
 	case "detail":
-		return a.Client.Detail(ctx, p.Address)
+		return a.callClient(ctx).Detail(ctx, p.Address)
 	case "icon":
 		return a.icon(ctx, p.Address), nil
 	// Installs and updates get their own connection, so browsing goes on
@@ -81,17 +96,17 @@ func (a *API) Call(ctx context.Context, method string, raw json.RawMessage) (any
 	case "install":
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 		defer cancel()
-		c := a.Client.Fork()
+		c := a.callClient(ctx).Fork()
 		defer c.Close()
 		return c.Install(ctx, p.Address)
 	case "update":
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 		defer cancel()
-		c := a.Client.Fork()
+		c := a.callClient(ctx).Fork()
 		defer c.Close()
 		return nil, c.Update(ctx, p.Address)
 	case "uninstall":
-		return nil, a.Client.Uninstall(ctx, p.Address)
+		return nil, a.callClient(ctx).Uninstall(ctx, p.Address)
 	case "launch", "try":
 		return a.launch(ctx, method == "try", p.Address)
 	case "sync":
@@ -139,7 +154,7 @@ func (a *API) launch(ctx context.Context, try bool, address string) (any, error)
 		}
 		return &kwakrpc.LaunchResult{Address: address, Outcome: "opened"}, nil
 	}
-	if err := launcher.EnsureSession(ctx, a.Client, a.Log); err != nil {
+	if err := launcher.EnsureSession(ctx, a.callClient(ctx), a.Log); err != nil {
 		a.Log.Warn("update the service's display", "err", err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
@@ -147,9 +162,9 @@ func (a *API) launch(ctx context.Context, try bool, address string) (any, error)
 	var res *kwakrpc.LaunchResult
 	var err error
 	if try {
-		res, err = a.Client.Try(ctx, address)
+		res, err = a.callClient(ctx).Try(ctx, address)
 	} else {
-		res, err = a.Client.Launch(ctx, address)
+		res, err = a.callClient(ctx).Launch(ctx, address)
 	}
 	if err != nil {
 		return nil, err
@@ -175,7 +190,7 @@ func (a *API) icon(ctx context.Context, address string) string {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	url := ""
-	if icon, err := a.Client.Icon(ctx, address); err == nil {
+	if icon, err := a.callClient(ctx).Icon(ctx, address); err == nil {
 		url = "data:image/png;base64," + icon.Data
 	}
 	a.iconMu.Lock()

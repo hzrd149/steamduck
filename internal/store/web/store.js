@@ -1,5 +1,6 @@
 import { call } from "./api";
 import { loadAccount, modalOpen, closeModal } from "./account.js";
+import { loadSettings } from "./settings";
 import { startController } from "./controller";
 
 // ---- small DOM helpers ----
@@ -102,7 +103,7 @@ function authorOf(item) {
 
 // ---- state ----
 
-const TABS = ["library", "discover", "account"];
+const TABS = ["library", "discover", "account", "settings"];
 
 const state = {
   tab: "library",
@@ -173,7 +174,7 @@ function showTab(name) {
   state.tab = name;
   for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t.dataset.tab === name));
   for (const v of TABS) $("#" + v).hidden = name !== v;
-  const load = name === "library" ? loadLibrary() : name === "discover" ? loadDiscover(false, false) : loadAccount();
+  const load = name === "library" ? loadLibrary() : name === "discover" ? loadDiscover(false, false) : name === "settings" ? loadSettings() : loadAccount();
   load.catch((err) => toast(err.message, true)).finally(() => focusFirst());
 }
 
@@ -285,7 +286,7 @@ function renderMeta(item) {
 // The webview may refuse the page's clipboard, above all for a press from
 // the controller, so the store copies it itself when that fails. Failing
 // that too, the address shows so it can be typed out.
-async function copyText(text) {
+export async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
     return true;
@@ -776,6 +777,7 @@ $("#refresh").addEventListener("click", (e) => busy(e.currentTarget, async () =>
   toast("Catalog refreshed");
 }));
 $("#more").addEventListener("click", (e) => busy(e.currentTarget, () => loadDiscover(true, false)));
+$("#settings-account").addEventListener("click", () => showTab("account"));
 $("#sync").addEventListener("click", (e) => busy(e.currentTarget, async () => {
   const r = await call("sync");
   toast(r?.deferred

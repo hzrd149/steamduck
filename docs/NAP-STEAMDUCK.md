@@ -4,7 +4,7 @@ NAP-STEAMDUCK
 Trusted Steamduck Store Control
 ------------------------------
 
-`draft` · version `1` · proposed, not implemented
+`draft` · version `1` · JavaScript binding implemented; native adapter pending
 
 **NAP ID:** NAP-STEAMDUCK  
 **Domain:** `steamduck`  
@@ -140,6 +140,9 @@ while daemon `napplet.installed` returns a page.
 | `permissions.get` | `address` | Daemon `napplet.permissions.get` result; empty saved rules are `[]`. |
 | `permissions.clear` | `address`, `permission`, optional `subject`, `decision` | null; forgets the matching saved rule, without granting access. `decision` is accepted for existing UI compatibility and does not select the rule. |
 | `settings.get` | none | Daemon non-secret `Settings`. |
+| `settings.inspect` | none | `{settings:Settings,sources:{FIELD:"default"\|"config"\|"override"}}`. |
+| `settings.reload` | none | `{settings:Settings}` after re-reading the declarative configuration. |
+| `settings.clear` | `field` | null after removing that field’s local override. |
 | `settings.set` | `field`, `value` | null after persisting the setting. |
 | `napplet.social` | daemon parameters | Daemon result. |
 | `napplet.reactions` | daemon parameters | Daemon result. |
@@ -315,7 +318,13 @@ An implementation is ready when these checks pass:
 
 ## Implementations
 
-None yet. The migration source is the existing
+The [runtime-injected binding](nap-steamduck-binding.md) implements the web API
+using Kwakore's private lexical extension transport. It is built separately from
+the app and embedded as `store.SteamduckPrelude()`. The native store registration
+and handler adapter are pending. The binding guide records the current runtime
+deadline and response-size limits that do not yet meet this full draft contract.
+
+The migration source for native handlers is the existing
 [store dispatcher](../internal/store/api.go),
 [account operations](../internal/store/account.go) and
 [social operations](../internal/store/social.go). Their current webview and HTTP

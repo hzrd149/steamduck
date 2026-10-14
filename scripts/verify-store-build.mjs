@@ -14,6 +14,9 @@ for (const [directory, name] of [["store", "napplet"], ["store-legacy", "legacy"
   assert(manifest.tags.some((tag) => tag[0] === "R" && tag[1] === "steamduck"), "Custom domain must be required");
   assert(manifest.tags.some((tag) => tag[0] === "O" && tag[1] === "gamepad"), "Controller support must be declared");
   assert(manifest.tags.some((tag) => tag[0] === "O" && tag[1] === "theme"), "Theme support must be declared");
+  for (const domain of ["identity", "relay", "resource", "intent"]) {
+    assert(manifest.tags.some((tag) => tag[0] === "O" && tag[1] === domain), `Account capability must be declared: ${domain}`);
+  }
   const files = await readdir(output);
   assert(files.every((file) => file === "index.html" || file === ".nip5a-manifest.json"), `Unexpected runtime asset: ${files}`);
   function check(node) {

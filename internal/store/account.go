@@ -48,7 +48,7 @@ func (a *API) callAccount(ctx context.Context, method string, raw json.RawMessag
 	ok = true
 	switch method {
 	case "signer.status":
-		s, err := a.Client.SignerStatus(ctx)
+		s, err := a.callClient(ctx).SignerStatus(ctx)
 		if err != nil {
 			return nil, ok, err
 		}
@@ -61,7 +61,7 @@ func (a *API) callAccount(ctx context.Context, method string, raw json.RawMessag
 		// a bunker handshake may take the daemon's full 20 seconds
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		c := a.Client.Fork()
+		c := a.callClient(ctx).Fork()
 		defer c.Close()
 		s, err := c.SwitchSigner(ctx, p)
 		if err != nil {
@@ -74,7 +74,7 @@ func (a *API) callAccount(ctx context.Context, method string, raw json.RawMessag
 		// the offer lasts two minutes; the daemon gives up after 125 seconds
 		ctx, cancel := context.WithTimeout(ctx, 135*time.Second)
 		defer cancel()
-		c := a.Client.Fork()
+		c := a.callClient(ctx).Fork()
 		defer c.Close()
 		s, err := c.PairWait(ctx)
 		if err != nil {
@@ -91,13 +91,13 @@ func (a *API) callAccount(ctx context.Context, method string, raw json.RawMessag
 		res, err := a.getProfile(ctx, p.Refresh)
 		return res, ok, err
 	case "signer.pair.cancel":
-		return nil, ok, a.Client.PairCancel(ctx)
+		return nil, ok, a.callClient(ctx).PairCancel(ctx)
 	case "permissions.get":
 		var p addressParams
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return nil, ok, err
 		}
-		res, err := a.Client.Permissions(ctx, p.Address)
+		res, err := a.callClient(ctx).Permissions(ctx, p.Address)
 		if err == nil && res.SavedRules == nil {
 			res.SavedRules = []kwakrpc.SavedRule{}
 		}
@@ -107,16 +107,28 @@ func (a *API) callAccount(ctx context.Context, method string, raw json.RawMessag
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return nil, ok, err
 		}
-		return nil, ok, a.Client.ClearPermission(ctx, p.Address, p.SavedRule)
+		return nil, ok, a.callClient(ctx).ClearPermission(ctx, p.Address, p.SavedRule)
 	case "settings.get":
-		res, err := a.Client.Settings(ctx)
+		res, err := a.callClient(ctx).Settings(ctx)
 		return res, ok, err
+	case "settings.inspect", "settings.reload":
+		var result map[string]any
+		err := a.callClient(ctx).Call(ctx, method, nil, &result)
+		return result, ok, err
+	case "settings.clear":
+		var p struct {
+			Field string `json:"field"`
+		}
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, ok, err
+		}
+		return nil, ok, a.callClient(ctx).Call(ctx, method, map[string]string{"field": p.Field}, nil)
 	case "settings.set":
 		var p settingParams
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return nil, ok, err
 		}
-		return nil, ok, a.Client.SetSetting(ctx, p.Field, p.Value)
+		return nil, ok, a.callClient(ctx).SetSetting(ctx, p.Field, p.Value)
 	}
 	return nil, false, nil
 }
@@ -127,7 +139,7 @@ func (a *API) pairStart(ctx context.Context) (any, bool, error) {
 		return nil, true, err
 	}
 	secret := hex.EncodeToString(b[:])
-	start, err := a.Client.PairStart(ctx, secret)
+	start, err := a.callClient(ctx).PairStart(ctx, secret)
 	if err != nil {
 		return nil, true, err
 	}

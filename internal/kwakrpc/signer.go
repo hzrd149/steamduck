@@ -110,4 +110,4 @@ func (c *Client) SetSetting(ctx context.Context, field string, value any) error 
 // Fork returns a client with its own connection to the same daemon, for a
 // call that waits a long time without holding up this client's others.
 // Close it when done.
-func (c *Client) Fork() *Client { return &Client{path: c.path} }
+func (c *Client) Fork() *Client { return &Client{path: c.path, noRetry: c.noRetry} }

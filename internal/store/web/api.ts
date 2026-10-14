@@ -1,3 +1,4 @@
+import type { NappletGlobal } from "@napplet/core";
 import type { BridgeInfo, SteamduckAPI } from "../nap-steamduck/types";
 export type { BridgeInfo, SteamduckAPI } from "../nap-steamduck/types";
 
@@ -16,6 +17,10 @@ declare global {
         } | null>;
       };
       theme?: unknown;
+      identity?: NappletGlobal["identity"];
+      relay?: NappletGlobal["relay"];
+      resource?: NappletGlobal["resource"];
+      intent?: NappletGlobal["intent"];
     };
   }
 }

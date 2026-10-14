@@ -2,6 +2,12 @@
 
 Status: implementation proposal, not an implemented API. Prepared 2026-10-13.
 
+Update: Kwakore implemented native built-ins/custom domains in commit `2c999cf`.
+This document retains the original proposal; some proposed details differ from
+the shipped private-port transport and limits. The
+[binding integration guide](nap-steamduck-binding.md) records the actual contract
+and remaining Steamduck adapter work.
+
 ## Objective
 
 Allow a native application using Kwakore to supply custom NAP bindings and

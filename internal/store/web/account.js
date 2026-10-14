@@ -1,48 +1,63 @@
 import { call } from "./api";
-import { $, toast, busy, button, confirmAction, focusFirst } from "./store.js";
+import { $, toast, busy, button, confirmAction, focusFirst, copyText } from "./store.js";
+
+import { identityGetPublicKey, identityOnChanged } from "@napplet/nap/identity/sdk";
+import { hasIdentity, canEditProfile, readProfile, profileImage, openUserProfile,
+  latestProfile, profileMetadata, publishProfile } from "./identity";
+import { initSocial, setSocialIdentity } from "./account-social";
 
 // ---- account: the player's social account ----
 //
 // Signed out, the tab offers the ways to sign in, each in its own modal.
 // Signed in, it shows the account's public profile and a sign out button.
 
+let accountKey = null;
+let accountRevision = 0;
+let imageRevision = 0;
+let currentProfile = null;
+
 export async function loadAccount() {
-  const [signer, settings] = await Promise.all([call("signer.status"), call("settings.get")]);
-  renderTheme(settings.theme);
-  await renderAccount(signer);
+  const revision = ++accountRevision;
+  const [signer, pubkey] = await Promise.all([
+    call("signer.status"), hasIdentity() ? identityGetPublicKey() : null,
+  ]);
+  if (revision !== accountRevision) return;
+  await renderAccount(hasIdentity() ? { ...signer, public_key: pubkey,
+    connection_state: pubkey ? "connected" : "disconnected", mode: pubkey ? signer.mode === "none" ? "system" : signer.mode : signer.mode } : signer);
 }
 
-// Which of the three account views is showing, and the key it is for.
-let accountKey = null;
-
 async function renderAccount(s) {
+  const revision = ++accountRevision;
   const show = (id) => {
     for (const v of ["acct-loading", "acct-profile", "acct-offline", "acct-signin"]) $("#" + v).hidden = v !== id;
   };
-  if (s.mode === "none") {
+  if (s.mode === "none" || s.connection_state !== "connected" || !s.public_key) {
     accountKey = null;
-    show("acct-signin");
+    currentProfile = null;
+    imageRevision++;
+    setSocialIdentity("");
+    show(s.mode === "none" ? "acct-signin" : "acct-offline");
     return;
   }
-  if (s.connection_state !== "connected" || !s.public_key) {
-    accountKey = null;
-    show("acct-offline");
-    return;
-  }
-  // a profile already on screen stays while it refreshes
   if (accountKey !== s.public_key) {
-    renderProfile({ public_key: s.public_key, npub: s.npub, found: false, loading: true });
-    show("acct-profile");
+    accountKey = s.public_key;
+    renderProfile({ public_key: s.public_key, npub: s.npub || s.public_key, found: false, loading: true });
   }
-  accountKey = s.public_key;
-  let p;
+  show("acct-profile");
+  setSocialIdentity(accountKey);
+  $("#profile-edit").hidden = !canEditProfile();
+  $("#profile-open").hidden = !window.napplet?.intent;
   try {
-    p = await call("profile.get");
+    const p = hasIdentity() ? await readProfile(s.public_key) : await call("profile.get");
+    if (revision === accountRevision && p?.public_key === accountKey) renderProfile(p);
   } catch (err) {
+    if (revision !== accountRevision) return;
+    $("#p-name").classList.remove("skeleton");
+    $("#p-name").textContent = "Your account";
+    $("#p-note").hidden = false;
+    $("#p-note").textContent = "Could not load your profile. Use Refresh profile to try again.";
     toast(err.message, true);
-    return;
   }
-  if (p && p.public_key === accountKey) renderProfile(p);
 }
 
 function shortId(npub) {
@@ -57,6 +72,8 @@ function setImage(el, url) {
 }
 
 function renderProfile(p) {
+  currentProfile = p;
+  const revision = ++imageRevision;
   const name = p.display_name || p.name || (p.loading ? "" : "Your account");
   $("#p-name").textContent = name;
   $("#p-name").classList.toggle("skeleton", !!p.loading);
@@ -68,6 +85,16 @@ function renderProfile(p) {
   if (!setImage(avatar, p.picture)) avatar.textContent = [...(name || "?").trim()][0]?.toUpperCase() || "?";
   else avatar.textContent = "";
   setImage($("#p-banner"), p.banner);
+  if (hasIdentity() && !p.loading) {
+    for (const [element, url] of [[avatar, p.picture], [$("#p-banner"), p.banner]]) {
+      if (!url) continue;
+      profileImage(url).then((image) => {
+        if (revision !== imageRevision || !image) return;
+        setImage(element, image);
+        if (element === avatar) element.textContent = "";
+      }).catch(() => {});
+    }
+  }
 
   $("#p-about").textContent = p.about || "";
   $("#p-about").hidden = !p.about;
@@ -85,11 +112,11 @@ function renderProfile(p) {
   };
   fact("Website", p.website?.replace(/^https?:\/\//, "").replace(/\/$/, ""));
   fact("Tips", p.lud16);
-  fact("Account ID", p.npub, "mono");
+  fact("Account ID", p.npub || p.public_key, "mono");
 
   const note = $("#p-note");
   note.hidden = p.loading || p.found;
-  note.textContent = "This account has no public profile yet. Add a name and picture in your signer or any app that uses this account, and it shows up here.";
+  note.textContent = "This account has no public profile yet. Add a name and picture with Edit profile or another Nostr app.";
 }
 
 async function signOut() {
@@ -290,7 +317,7 @@ function secretFlow(f) {
   actions.append(submit, cancel);
   form.append(label, input, help, error, actions);
 
-  form.addEventListener("submit", (e) => {
+  const signIn = (e) => {
     e.preventDefault();
     busy(submit, async () => {
       const secret = input.value.trim();
@@ -310,20 +337,123 @@ function secretFlow(f) {
       toast("Saved, but your signer isn't answering yet.");
       await renderAccount(s);
     });
-  });
+  };
+  submit.addEventListener("click", signIn);
+  form.addEventListener("submit", signIn);
   openModal(f.title, [form], () => (input.value = ""));
   input.focus();
 }
 
-// ---- settings ----
+// ---- public profile editor ----
 
-function renderTheme(theme) {
-  for (const b of $("#theme").children) b.setAttribute("aria-pressed", String(b.dataset.value === theme));
+async function editProfile() {
+  const pubkey = accountKey;
+  if (!pubkey || !canEditProfile()) return;
+  let active = true;
+  const status = el("p", "muted", "Loading your latest profile…");
+  openModal("Edit public profile", [status, button("Cancel", "secondary", async () => closeModal())], () => { active = false; });
+  let baseline, metadata;
+  try {
+    baseline = await latestProfile(pubkey);
+    metadata = profileMetadata(baseline);
+    if (!baseline && currentProfile?.found) throw new Error("Could not load your existing profile for editing. Refresh and try again.");
+  } catch (err) {
+    if (active) status.textContent = err.message;
+    return;
+  }
+  if (!active || accountKey !== pubkey) return;
+  const form = el("form", "m-form profile-editor");
+  form.append(el("p", "muted small", "These details are public across Nostr. Kwakore asks your signer to approve the update."));
+  const inputs = new Map();
+  const original = new Map();
+  for (const [field, labelText, type] of [
+    ["display_name", "Display name", "text"], ["name", "Username", "text"],
+    ["about", "About", "textarea"], ["picture", "Picture URL", "url"],
+    ["banner", "Banner URL", "url"], ["website", "Website", "url"],
+    ["nip05", "Nostr address (NIP-05)", "text"], ["lud16", "Lightning address", "text"],
+  ]) {
+    const label = el("label", null, labelText);
+    const input = el(type === "textarea" ? "textarea" : "input");
+    input.id = "edit-" + field; label.htmlFor = input.id;
+    if (type !== "textarea") input.type = type;
+    else input.rows = 3;
+    const value = field === "display_name" ? metadata.display_name ?? metadata.displayName : metadata[field];
+    input.value = typeof value === "string" ? value : "";
+    original.set(field, input.value);
+    input.autocomplete = "off";
+    inputs.set(field, input);
+    form.append(label, input);
+  }
+  const error = errorLine();
+  const save = el("button", "primary", "Publish profile");
+  save.type = "submit";
+  const cancel = el("button", "secondary", "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", closeModal);
+  const actions = el("div", "actions"); actions.append(save, cancel);
+  form.append(error, actions);
+  $("#m-body").replaceChildren(form);
+  focusFirst($("#account-modal"));
+  const publish = (event) => {
+    event.preventDefault();
+    busy(save, async () => {
+      showError(error, "");
+      const changes = {};
+      for (const [field, input] of inputs) {
+        const value = input.value.trim();
+        if (value !== original.get(field)) changes[field] = value;
+      }
+      if (!Object.keys(changes).length) { closeModal(); return; }
+      for (const input of inputs.values()) input.disabled = true;
+      try {
+        if (!active || accountKey !== pubkey) return;
+        const profile = await publishProfile(pubkey, changes, baseline);
+        if (!active || accountKey !== pubkey) return;
+        accountRevision++;
+        renderProfile(profile);
+        closeModal();
+        toast("Profile published");
+      } catch (err) {
+        if (active) showError(error, err.message || "Could not publish your profile. Try again.");
+      } finally {
+        for (const input of inputs.values()) input.disabled = false;
+      }
+    });
+  };
+  // A scripts-only sandbox blocks native form submission. Handle activation
+  // directly while keeping submit semantics for Enter and accessible forms.
+  save.addEventListener("click", publish);
+  form.addEventListener("submit", publish);
 }
 
 // ---- wiring ----
 
 export function initAccount() {
+  initSocial();
+  if (hasIdentity()) {
+    const subscription = identityOnChanged((pubkey) => {
+      accountRevision++;
+      closeModal();
+      // Clear the old account immediately, before any async reads complete.
+      accountKey = null;
+      currentProfile = null;
+      imageRevision++;
+      setSocialIdentity("");
+      renderAccount({ mode: pubkey ? "system" : "none", public_key: pubkey,
+        connection_state: pubkey ? "connected" : "disconnected" }).catch((err) => toast(err.message, true));
+    });
+    window.addEventListener("pagehide", () => {
+      subscription.close(); accountRevision++; imageRevision++; closeModal();
+    }, { once: true });
+    loadAccount().catch((err) => toast(err.message, true));
+  }
+  $("#profile-edit").addEventListener("click", (e) => busy(e.currentTarget, editProfile));
+  $("#profile-refresh").addEventListener("click", (e) => busy(e.currentTarget, loadAccount));
+  $("#profile-open").addEventListener("click", (e) => busy(e.currentTarget, () => openUserProfile(accountKey)));
+  $("#profile-copy").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+    const id = currentProfile?.npub || accountKey;
+    if (id) toast(await copyText(id) ? "Account ID copied" : id);
+  }));
   for (const b of document.querySelectorAll("#acct-signin .option")) {
     b.addEventListener("click", () => FLOWS[b.dataset.flow]());
   }
@@ -339,10 +469,5 @@ export function initAccount() {
   $("#account-modal").addEventListener("click", (e) => {
     if (e.target === e.currentTarget) closeModal();
   });
-  for (const b of $("#theme").children) {
-    b.addEventListener("click", () => busy(b, async () => {
-      await call("settings.set", { field: "theme", value: b.dataset.value });
-      renderTheme(b.dataset.value);
-    }));
-  }
+
 }

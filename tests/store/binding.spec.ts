@@ -18,21 +18,21 @@ async function setup(page: Page, withApp = false) {
       (window as any).ports.push(port);
       (window as any).activePort = port;
       port.onmessage = (event) => {
-      if (!event.data?.type?.startsWith("steamduck.")) return;
-      (window as any).requests.push(event.data);
-      if (!withApp) return;
-      const message = event.data;
-      let result: unknown = null;
-      if (message.type === "steamduck.info") result = metadata;
-      else if (message.method === "status") result = { health: { ready: true, version: "real-binding" } };
-      else if (message.method === "installed") result = [{
-        address: "35129:" + "a".repeat(64) + ":demo", name: "Bound game",
-        available: true, compatible: true, format: "napplet", update_available: null,
-        version: {created_at: 1},
-      }];
-      else if (message.method === "icon") result = "";
-      else if (message.method === "sync") result = {deferred: true, shortcut_count: 1};
-      port.postMessage({type: message.type + ".result", id: message.id, result});
+        if (!event.data?.type?.startsWith("steamduck.")) return;
+        (window as any).requests.push(event.data);
+        if (!withApp) return;
+        const message = event.data;
+        let result: unknown = null;
+        if (message.type === "steamduck.info") result = metadata;
+        else if (message.method === "status") result = { health: { ready: true, version: "real-binding" } };
+        else if (message.method === "installed") result = [{
+          address: "35129:" + "a".repeat(64) + ":demo", name: "Bound game",
+          available: true, compatible: true, format: "napplet", update_available: null,
+          version: {created_at: 1},
+        }];
+        else if (message.method === "icon") result = "";
+        else if (message.method === "sync") result = {deferred: true, shortcut_count: 1};
+        port.postMessage({type: message.type + ".result", id: message.id, result});
       };
     });
   }, {withApp, metadata});
@@ -153,7 +153,7 @@ test("invalid JSON parameters and takeover operations are rejected before postin
   expect(await requests(page)).toEqual([]);
 });
 
-test("runtime helper deadline caps do not cause mutation replay", async ({ page }) => {
+test("long request budgets are respected without mutation replay", async ({ page }) => {
   await page.clock.install();
   const {frame} = await setup(page);
   await call(frame, "info", "info");
@@ -163,10 +163,10 @@ test("runtime helper deadline caps do not cause mutation replay", async ({ page 
   await page.clock.runFor(35_001);
   await expect.poll(() => results(frame)).toMatchObject({info: {ok: false, error: {code: 1008, message: "Timeout"}}});
   expect(await results(frame)).not.toHaveProperty("pair");
-  // Kwakore 2c999cf caps its local helper at 125 seconds, including requests
-  // whose NAP-STEAMDUCK budgets are longer. This is an integration limitation.
-  await page.clock.runFor(90_000);
+  await page.clock.runFor(105_000);
   await expect.poll(() => results(frame)).toMatchObject({pair: {ok: false, error: {code: 1008}}});
+  expect(await results(frame)).not.toHaveProperty("install");
+  await page.clock.runFor(45_000);
   await expect.poll(() => results(frame)).toMatchObject({install: {ok: false, error: {code: 1008}}});
   const sent = await requests(page);
   expect(sent).toHaveLength(3);

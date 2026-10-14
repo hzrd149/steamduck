@@ -52,7 +52,7 @@ type profileCache struct {
 // getProfile returns the signed-in account's profile, or nil when nobody
 // is signed in. It is cached for the session; refresh asks the relays again.
 func (a *API) getProfile(ctx context.Context, refresh bool) (*profile, error) {
-	s, err := a.Client.SignerStatus(ctx)
+	s, err := a.callClient(ctx).SignerStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (a *API) getProfile(ctx context.Context, refresh bool) (*profile, error) {
 	}
 
 	relays := append([]string{}, profileRelays...)
-	if settings, err := a.Client.Settings(ctx); err == nil {
+	if settings, err := a.callClient(ctx).Settings(ctx); err == nil {
 		if list, ok := settings["relays"].([]any); ok {
 			for _, r := range list {
 				if r, ok := r.(string); ok {

@@ -84,7 +84,8 @@ type response struct {
 // Client sends requests over one connection. Responses arrive in request
 // order, so calls are serialized. A Client is safe for concurrent use.
 type Client struct {
-	path string
+	path    string
+	noRetry bool
 
 	mu   sync.Mutex
 	conn net.Conn
@@ -155,9 +156,12 @@ func checkPeer(conn net.Conn) error {
 func (c *Client) Call(ctx context.Context, method string, params, out any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	raw, err := c.call(ctx, method, params)
 	var rpcErr *Error
-	if err != nil && !errors.As(err, &rpcErr) && ctx.Err() == nil {
+	if err != nil && !c.noRetry && !errors.As(err, &rpcErr) && ctx.Err() == nil {
 		c.closeLocked()
 		raw, err = c.call(ctx, method, params)
 	}
@@ -169,6 +173,10 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 	}
 	return json.Unmarshal(raw, out)
 }
+
+// WithoutRetry opens an independent client that never replays an ambiguous
+// request after losing its response. Forks preserve this policy.
+func (c *Client) WithoutRetry() *Client { return &Client{path: c.path, noRetry: true} }
 
 func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if c.conn == nil {

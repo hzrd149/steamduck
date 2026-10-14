@@ -14,6 +14,7 @@
     <button class="tab" data-tab="library" role="tab">Library</button>
     <button class="tab" data-tab="discover" role="tab">Discover</button>
     <button class="tab" data-tab="account" role="tab">Account</button>
+    <button class="tab" data-tab="settings" role="tab">Settings</button>
     <span class="hint" aria-hidden="true">R1</span>
   </nav>
   <div class="status" id="status" title="kwakore service"><span class="dot"></span><span id="status-text">Connecting…</span></div>
@@ -56,6 +57,27 @@
       <p class="profile-about" id="p-about"></p>
       <dl class="profile-facts" id="p-facts"></dl>
       <p class="muted small" id="p-note" hidden></p>
+      <div class="actions profile-actions">
+        <button id="profile-edit" class="primary" hidden>Edit profile</button>
+        <button id="profile-refresh" class="secondary">Refresh profile</button>
+        <button id="profile-copy" class="secondary">Copy account ID</button>
+        <button id="profile-open" class="secondary" hidden>Open profile app</button>
+      </div>
+    </div>
+
+    <div id="account-social" class="panel" hidden>
+      <h2>Your Nostr account</h2>
+      <div class="segmented social-tabs" id="social-tabs" aria-label="Account information">
+        <button data-section="follows">Following</button>
+        <button data-section="relays">Relays</button>
+        <button data-section="badges">Badges</button>
+        <button data-section="zaps">Received zaps</button>
+        <button data-section="lists">Public lists</button>
+        <button data-section="mutes">Muted</button>
+        <button data-section="blocked">Blocked</button>
+      </div>
+      <p id="social-status" class="muted small" role="status"></p>
+      <div id="social-content"></div>
     </div>
 
     <div id="acct-offline" class="panel" hidden>
@@ -93,13 +115,21 @@
       </div>
     </div>
 
-    <div class="panel settings">
-      <h2>Game theme</h2>
-      <div class="segmented" id="theme">
-        <button data-value="system">System</button>
-        <button data-value="light">Light</button>
-        <button data-value="dark">Dark</button>
-      </div>
+  </section>
+
+  <section id="settings" class="view" hidden aria-labelledby="settings-title">
+    <div class="toolbar settings-toolbar">
+      <h1 id="settings-title">Kwakore settings</h1>
+      <button id="settings-refresh" class="secondary">Refresh settings</button>
+      <button id="settings-reload" class="secondary" hidden>Reload configuration</button>
+    </div>
+    <p class="muted settings-intro">Choose where Kwakore finds napplets and their files, and how it integrates with your device. Changes apply immediately and are saved on this device.</p>
+    <p id="settings-status" class="muted" role="status"></p>
+    <div id="settings-fields"></div>
+    <div class="panel settings-account">
+      <h2>Nostr account</h2>
+      <p class="muted">Manage your signer, sign-in and public profile on the Account page.</p>
+      <button id="settings-account" class="secondary">Manage account</button>
     </div>
   </section>
 
