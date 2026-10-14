@@ -1,0 +1,58 @@
+# steamduck
+
+steamduck integrates the [kwakore](https://github.com/hzrd149/kwakore) napplet runtime into SteamOS on the Steam Deck:
+
+1. **Install**: `steamduck install` sets up kwakore and steamduck as per-user services under `~/.local` and `~/.config`. It needs no root, and SteamOS updates leave it in place.
+2. **Store**: `steamduck store` is a controller-friendly webview app for discovering, installing, updating, launching and removing napplets. It talks to kwakore over its control socket (JSON-RPC, protocol v1).
+3. **Steam library**: installed napplets become non-Steam shortcuts with generated artwork, in a "Napplets" collection. They launch from the Steam UI in both game mode and desktop mode.
+
+## How it fits together
+
+```
+Steam ──runs──▶ steamduck launch --napplet ADDR ──napplet.launch──▶ kwakore.service ──spawns──▶ kwaklet window
+   ▲                    │  tags the window STEAM_GAME=<appid>                                       │
+   │                    └──────────── waits for window.closed ◀──────────── events.subscribe ◀─────┘
+   │
+shortcuts.vdf ◀── steamduck-sync.service ◀── napplet.installed / uninstalled events
+```
+
+- **Launching.** Kwakore's service spawns napplet windows, so they are outside the process tree Steam started. In game mode, gamescope would not show them. `steamduck launch` finds the window's processes through the `KWAKORE_INSTANCE_ID=<window_id>` in their environment. It then sets the `STEAM_GAME` X11 property gamescope uses to pick the visible window. It blocks until the window closes, so Steam shows the game as running for exactly that long. Steam's "Exit game" sends SIGTERM, which closes the window through `napplet.stop`.
+- **Display switching.** Kwakore opens windows on the display its service started with. Before every launch, steamduck makes the systemd user manager use the caller's display. If the daemon is running on a different display with no windows open, steamduck restarts it, which matters when switching between game and desktop mode.
+- **Shortcuts.** `steamduck-sync.service` follows kwakore's install and uninstall events and rewrites `userdata/*/config/shortcuts.vdf`. Only steamduck's own entries change: they are identified by their `launch --napplet` options or the store's `store` option. Steam's own file is kept as `shortcuts.vdf.steamduck.bak`. Grid art is never written over art you picked yourself.
+
+## Commands
+
+```
+steamduck install [--kwakore-version TAG | --kwakore-archive FILE] [--kwakore-installer FILE] [--skip-kwakore]
+steamduck doctor            # check libraries, services, display, Steam
+steamduck store             # the store window (Steam runs: steamduck store)
+steamduck store --serve 127.0.0.1:8080   # the same UI in a browser, for development
+steamduck launch --napplet ADDRESS [--appid ID] [--try]
+steamduck sync [--watch] [--force] [--json]
+steamduck shortcuts         # wanted shortcuts as JSON (for a Decky plugin)
+steamduck uninstall
+```
+
+Configuration lives in `~/.config/steamduck/config.json`:
+
+```json
+{ "shortcuts": "all", "store_shortcut": true }
+```
+
+`shortcuts` is `all` (the default), `games` (only napplets with the `game` archetype) or `none`.
+
+## Known limitations
+
+- **Steam must restart to see new shortcuts.** Steam keeps shortcuts in memory and writes them back itself, so steamduck defers writing while Steam runs. It writes as soon as Steam exits, for example when you switch between game and desktop mode. `--force` writes anyway, but Steam will not show the change and may overwrite it. A Decky Loader plugin can add shortcuts live through Steam's client API; see `docs/design.md`.
+- **WebKitGTK 4.1** must be available to the kwakore window program. See [docs/steamos-runtime.md](docs/steamos-runtime.md).
+- Tested here on an Ubuntu X11 desktop against a real kwakore daemon: sync, store and launch. It has not yet been run on a Steam Deck, under gamescope.
+
+## Development
+
+```sh
+go test ./...
+go build -o steamduck ./cmd/steamduck
+./steamduck store --serve 127.0.0.1:8080   # open the printed URL
+```
+
+The store window uses the `libwebview.so` from the kwakore release, through purego, so building needs no cgo.

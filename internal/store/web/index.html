@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Napplet Store</title>
+<link rel="stylesheet" href="store.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="duck" aria-hidden="true"></span>Napplet Store</div>
+  <nav class="tabs" role="tablist">
+    <span class="hint" aria-hidden="true">L1</span>
+    <button class="tab" data-tab="library" role="tab">Library</button>
+    <button class="tab" data-tab="discover" role="tab">Discover</button>
+    <span class="hint" aria-hidden="true">R1</span>
+  </nav>
+  <div class="status" id="status" title="kwakore service"><span class="dot"></span><span id="status-text">Connecting…</span></div>
+</header>
+
+<main>
+  <section id="library" class="view" hidden>
+    <div class="toolbar">
+      <h1>Installed</h1>
+      <button id="sync" class="secondary">Sync Steam shortcuts</button>
+    </div>
+    <div class="grid" id="library-grid"></div>
+    <p class="empty" id="library-empty" hidden>No napplets installed yet. Find some in Discover.</p>
+  </section>
+
+  <section id="discover" class="view" hidden>
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Search napplets" autocomplete="off" spellcheck="false">
+      <button id="refresh" class="secondary">Refresh from relays</button>
+    </div>
+    <div class="grid" id="discover-grid"></div>
+    <p class="empty" id="discover-empty" hidden>Nothing found. Try refreshing from relays.</p>
+    <button id="more" class="secondary more" hidden>Load more</button>
+  </section>
+</main>
+
+<div id="detail" class="detail" hidden role="dialog" aria-modal="true" aria-labelledby="d-name">
+  <div class="detail-card">
+    <div class="detail-head">
+      <span id="d-icon" class="icon big" aria-hidden="true"></span>
+      <div>
+        <h2 id="d-name"></h2>
+        <div id="d-author" class="muted"></div>
+        <div id="d-tags" class="tags"></div>
+      </div>
+    </div>
+    <p id="d-desc" class="desc"></p>
+    <dl id="d-meta" class="meta"></dl>
+    <div class="actions" id="d-actions"></div>
+    <div class="footer-hint"><span class="hint">B</span> Back</div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" hidden></div>
+
+<template id="card">
+  <button class="card">
+    <span class="icon" aria-hidden="true"></span>
+    <span class="name"></span>
+    <span class="sub muted"></span>
+    <span class="badge" hidden></span>
+  </button>
+</template>
+
+<script src="store.js"></script>
+</body>
+</html>
