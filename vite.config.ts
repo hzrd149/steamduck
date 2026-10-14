@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { nip5aManifest } from "@napplet/vite-plugin";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 
 export default defineConfig(({ mode }) => ({
   root: fileURLToPath(new URL("./internal/store/web", import.meta.url)),
@@ -10,7 +11,7 @@ export default defineConfig(({ mode }) => ({
     host: "127.0.0.1",
     proxy: mode === "legacy" ? { "/api": "http://127.0.0.1:8080" } : undefined,
   },
-  plugins: [nip5aManifest({
+  plugins: [svelte(), nip5aManifest({
     nappletType: "steamduck-store",
     title: "Steamduck Store",
     description: "Discover, install and play napplets on Steam Deck with your Nostr account.",

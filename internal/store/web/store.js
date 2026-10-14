@@ -3,18 +3,17 @@ import { call } from "./api";
 import { loadAccount, modalOpen, closeModal } from "./account.js";
 import { loadSettings } from "./settings";
 import { startController } from "./controller";
+import { tick } from "svelte";
+import { catalog, navigation, notification, runtimeStatus } from "./ui";
 
 // ---- small DOM helpers ----
 
 export const $ = (sel) => document.querySelector(sel);
 let toastTimer;
 export function toast(text, isError) {
-  const el = $("#toast");
-  el.textContent = text;
-  el.classList.toggle("error", !!isError);
-  el.hidden = false;
+  notification.set({ text, error: !!isError });
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.hidden = true), isError ? 6000 : 3000);
+  toastTimer = setTimeout(() => notification.set(null), isError ? 6000 : 3000);
 }
 
 export async function busy(button, fn) {
@@ -87,15 +86,6 @@ function ago(ts) {
   return new Date(ts * 1000).toLocaleDateString();
 }
 
-function nameOf(item) {
-  return (item.name || "").trim() || "Untitled napplet";
-}
-
-function authorOf(item) {
-  if (item.author_name) return item.author_name;
-  return item.author ? item.author.slice(0, 8) + "…" : "";
-}
-
 // ---- state ----
 
 const TABS = ["library", "discover", "account", "settings"];
@@ -110,27 +100,8 @@ const state = {
 
 // ---- views ----
 
-function renderCards(grid, items, opts) {
-  grid.replaceChildren();
-  const tpl = $("#card");
-  for (const item of items) {
-    const card = tpl.content.firstElementChild.cloneNode(true);
-    card.querySelector(".name").textContent = nameOf(item);
-    card.querySelector(".sub").textContent = authorOf(item);
-    loadIcon(card.querySelector(".icon"), item);
-    const badge = card.querySelector(".badge");
-    if (opts.library && item.update_available) {
-      badge.textContent = "Update";
-      badge.hidden = false;
-    } else if (!opts.library && state.installed.has(item.address)) {
-      badge.textContent = "Installed";
-      badge.classList.add("installed");
-      badge.hidden = false;
-    }
-    card.dataset.address = item.address;
-    card.addEventListener("click", () => openDetail(item));
-    grid.append(card);
-  }
+function publishCatalog() {
+  catalog.set({ installed: state.installed, discover: state.discover, nextOffset: state.nextOffset });
 }
 
 async function loadInstalledState() {
@@ -144,27 +115,27 @@ async function loadInstalledState() {
     offset = page.next_offset;
   }
   state.installed = new Map(items.map((i) => [i.address, i]));
+  publishCatalog();
 }
 
 async function loadLibrary() {
   await loadInstalledState();
-  const list = [...state.installed.values()].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  renderCards($("#library-grid"), list, { library: true });
-  $("#library-empty").hidden = list.length > 0;
+  await tick();
 }
 
 async function loadDiscover(append, refresh) {
+  const revision = ++discoverRevision;
   if (!append) await loadInstalledState();
+  if (revision !== discoverRevision) return;
   const params = { query: state.query, limit: 60 };
   if (append && state.nextOffset != null) params.offset = state.nextOffset;
   if (refresh) params.refresh = true;
   const page = await call("discover", params);
+  if (revision !== discoverRevision) return;
   page.items = page.items || [];
-  state.discover = append ? state.discover.concat(page.items) : page.items;
+  state.discover = [...new Map((append ? state.discover.concat(page.items) : page.items).map(item => [item.address, item])).values()];
   state.nextOffset = page.next_offset;
-  renderCards($("#discover-grid"), state.discover, { library: false });
-  $("#discover-empty").hidden = state.discover.length > 0;
-  $("#more").hidden = page.next_offset == null;
+  publishCatalog();
   if (!append && !refresh && page.fetched_at == null) {
     // empty cache: fetch from relays once
     toast("Fetching the catalog from relays…");
@@ -172,13 +143,13 @@ async function loadDiscover(append, refresh) {
   }
 }
 
-function showTab(name) {
+export function showTab(name) {
   if (pageOpen()) hidePage();
   state.tab = name;
-  for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t.dataset.tab === name));
-  for (const v of TABS) $("#" + v).hidden = name !== v;
+  navigation.set({ tab: name, detail: false });
+  for (const v of ["account", "settings"]) $("#" + v).hidden = name !== v;
   const load = name === "library" ? loadLibrary() : name === "discover" ? loadDiscover(false, false) : name === "settings" ? loadSettings() : loadAccount();
-  load.catch((err) => toast(err.message, true)).finally(() => focusFirst());
+  load.catch((err) => toast(err.message, true)).finally(async () => { await tick(); focusFirst(); });
 }
 
 // ---- napplet page: a full view like Steam's game page ----
@@ -209,13 +180,14 @@ const page = {
 
 const pageOpen = () => !$("#napplet").hidden;
 
-async function openDetail(item) {
+export async function openDetail(item) {
   Object.assign(page, { item, social: null, scroll: $("main").scrollTop, replyTo: null, offsets: {} });
-  for (const v of TABS) $("#" + v).hidden = true;
+  navigation.set({ tab: state.tab, detail: true });
+  for (const v of ["account", "settings"]) $("#" + v).hidden = true;
   $("#napplet").hidden = false;
   $("main").scrollTop = 0;
 
-  $("#d-name").textContent = nameOf(item);
+  $("#d-name").textContent = (item.name || "").trim() || "Untitled napplet";
   $("#d-author").textContent = item.author_name ? "by " + item.author_name : "";
   $("#d-desc").textContent = item.description || "";
   $("#d-bg").style.backgroundImage = "";
@@ -243,10 +215,11 @@ async function openDetail(item) {
   loadSocial(item);
 }
 
-function closeDetail() {
+async function closeDetail() {
   const address = page.item?.address;
   hidePage();
-  $("#" + state.tab).hidden = false;
+  navigation.set({ tab: state.tab, detail: false });
+  await tick();
   $("main").scrollTop = page.scroll;
   const card = [...document.querySelectorAll("#" + state.tab + " .card")].find((c) => c.dataset.address === address);
   if (card) card.focus({ preventScroll: true });
@@ -339,7 +312,6 @@ function renderActions() {
       await call("uninstall", { address: item.address });
       toast("Uninstalled");
       await loadLibrary();
-      if (state.tab === "discover") renderCards($("#discover-grid"), state.discover, { library: false });
       renderActions();
       focusFirst();
     }, "Uninstall " + (item.name || "this napplet") + "? Its saved data is removed."));
@@ -348,7 +320,6 @@ function renderActions() {
       await call("install", { address: item.address });
       toast("Installed " + (item.name || "napplet"));
       await loadLibrary();
-      if (state.tab === "discover") renderCards($("#discover-grid"), state.discover, { library: false });
       renderActions();
       focusFirst();
     });
@@ -367,11 +338,14 @@ function renderActions() {
 async function loadSocial(item) {
   $("#d-sync").textContent = "";
   try {
-    renderSocial(await call("napplet.social", { address: item.address }));
+    const social = await call("napplet.social", { address: item.address });
+    if (page.item !== item) return;
+    renderSocial(social);
   } catch {
     return;
   }
   if (page.item !== item) return;
+  if (!page.social) return;
   $("#d-sync").textContent = "Refreshing…";
   const before = page.social;
   try {
@@ -747,7 +721,7 @@ function cycleTab(step) {
   showTab(TABS[(TABS.indexOf(state.tab) + step + TABS.length) % TABS.length]);
 }
 
-document.addEventListener("keydown", (e) => {
+function onKeydown(e) {
   const typing = ["INPUT", "TEXTAREA"].includes(e.target.tagName);
   const multiline = e.target.tagName === "TEXTAREA";
   switch (e.key) {
@@ -761,69 +735,77 @@ document.addEventListener("keydown", (e) => {
     default: return;
   }
   e.preventDefault();
-});
+}
 
 // ---- wiring ----
 
-for (const t of document.querySelectorAll(".tab")) t.addEventListener("click", () => showTab(t.dataset.tab));
-
 let searchTimer;
-$("#search").addEventListener("input", (e) => {
+let discoverRevision = 0;
+export function searchCatalog(value) {
   clearTimeout(searchTimer);
+  ++discoverRevision;
   searchTimer = setTimeout(() => {
-    state.query = e.target.value.trim();
+    state.query = value.trim();
     loadDiscover(false, false).catch((err) => toast(err.message, true));
   }, 250);
-});
-$("#refresh").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+}
+export async function refreshCatalog() {
   await loadDiscover(false, true);
   toast("Catalog refreshed");
-}));
-$("#more").addEventListener("click", (e) => busy(e.currentTarget, () => loadDiscover(true, false)));
-$("#settings-account").addEventListener("click", () => showTab("account"));
-$("#sync").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+}
+export const loadMore = () => loadDiscover(true, false);
+export async function syncShortcuts() {
   const r = await call("sync");
   toast(r?.deferred
     ? "Steam is running: shortcuts will be written when it exits (or use the Decky plugin)."
     : "Steam shortcuts updated (" + (r?.shortcut_count ?? 0) + ")");
-}));
+}
 
-$("#d-back").addEventListener("click", closeDetail);
-$("#d-copy").addEventListener("click", async () => {
-  const address = page.item.address;
-  if (await copyText(address)) toast("Address copied");
-  else toast("Couldn't copy. The address is " + address, true);
-});
-for (const t of document.querySelectorAll(".ptab")) t.addEventListener("click", () => showPageTab(t.dataset.ptab));
-for (const b of $("#d-votes").children) b.addEventListener("click", () => busy(b, () => vote(b.dataset.vote)));
-for (const name of Object.keys(LISTS)) {
-  $(LISTS[name].more).addEventListener("click", (e) => busy(e.currentTarget, () => loadList(name, true)));
+export function initStore() {
+  const events = new AbortController();
+  const on = (target, event, handler) => target.addEventListener(event, handler, { signal: events.signal });
+  on(document, "keydown", onKeydown);
+  on($("#settings-account"), "click", () => showTab("account"));
+  on($("#d-back"), "click", closeDetail);
+  on($("#d-copy"), "click", async () => {
+    const address = page.item.address;
+    if (await copyText(address)) toast("Address copied");
+    else toast("Couldn't copy. The address is " + address, true);
+  });
+  for (const t of document.querySelectorAll(".ptab")) on(t, "click", () => showPageTab(t.dataset.ptab));
+  for (const b of $("#d-votes").children) on(b, "click", () => busy(b, () => vote(b.dataset.vote)));
+  for (const name of Object.keys(LISTS)) {
+    on($(LISTS[name].more), "click", e => busy(e.currentTarget, () => loadList(name, true)));
+  }
+  on($("#comment-form"), "submit", e => {
+    e.preventDefault();
+    busy($("#comment-submit"), submitComment);
+  });
+  on($("#reply-cancel"), "click", () => { cancelReply(); $("#comment-text").focus(); });
+  on($("#share-form"), "submit", e => {
+    e.preventDefault();
+    busy($("#share-submit"), submitShare);
+  });
+  for (const b of $("#zap-amounts").children) {
+    on(b, "click", () => { zapSats = Number(b.dataset.sats); renderZapAmount(); });
+  }
+  renderZapAmount();
+  on($("#zap-submit"), "click", e => busy(e.currentTarget, requestZap));
+  on($("#zap-done"), "click", e => busy(e.currentTarget, zapDone));
+  return () => {
+    events.abort();
+    clearTimeout(searchTimer);
+    clearTimeout(toastTimer);
+    ++discoverRevision;
+  };
 }
-$("#comment-form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  busy($("#comment-submit"), submitComment);
-});
-$("#reply-cancel").addEventListener("click", () => { cancelReply(); $("#comment-text").focus(); });
-$("#share-form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  busy($("#share-submit"), submitShare);
-});
-for (const b of $("#zap-amounts").children) {
-  b.addEventListener("click", () => { zapSats = Number(b.dataset.sats); renderZapAmount(); });
-}
-renderZapAmount();
-$("#zap-submit").addEventListener("click", (e) => busy(e.currentTarget, requestZap));
-$("#zap-done").addEventListener("click", (e) => busy(e.currentTarget, zapDone));
 
 async function refreshStatus() {
-  const el = $("#status");
   try {
     const s = await call("status");
-    el.className = "status " + (s.health.ready ? "ok" : "bad");
-    $("#status-text").textContent = "kwakore " + s.health.version;
+    runtimeStatus.set({ text: "kwakore " + s.health.version, ready: s.health.ready });
   } catch (err) {
-    el.className = "status bad";
-    $("#status-text").textContent = "kwakore unavailable";
+    runtimeStatus.set({ text: "kwakore unavailable", ready: false });
   }
 }
 
@@ -836,10 +818,7 @@ export function startStore() {
     a: () => document.activeElement?.click(), b: back,
     l1: () => cycleTab(-1), r1: () => cycleTab(1),
   });
-  window.addEventListener("pagehide", () => {
-    clearInterval(statusTimer);
-    stopController();
-  }, { once: true });
   const startTab = new URLSearchParams(location.hash.slice(1)).get("tab");
   showTab(TABS.includes(startTab) ? startTab : "library");
+  return () => { clearInterval(statusTimer); stopController(); };
 }

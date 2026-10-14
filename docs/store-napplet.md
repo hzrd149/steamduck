@@ -1,6 +1,19 @@
 # Building the Steamduck store napplet
 
-The store frontend lives in `internal/store/web`. Vite compiles its module
+The store frontend lives in `internal/store/web`. Svelte 5 owns the application
+shell, startup state, theme subscription, notifications, and keyed Library and
+Discover cards. `main.ts` only installs the development compatibility adapter
+when requested and mounts `App.svelte`. Reusable UI components live in
+`components/`, views in `views/`, and shared presentation state in `ui.ts`.
+
+Migration is incremental: account, settings, and napplet details currently remain
+imperative feature islands in the `index.html` template, moved into the shell
+on mount. `store.js` still coordinates their operations and controller focus.
+These are not yet a complete Svelte rewrite. New UI should use Svelte components,
+component-local styles/state, and the existing host API boundary rather than
+adding more DOM rendering helpers.
+
+Vite compiles its module
 entrypoint, styles and logo with the official `@napplet/vite-plugin`. Its
 single-file mode produces an HTML artifact with every runtime asset inline and
 a `.nip5a-manifest.json` sidecar describing the final artifact's SHA-256.
@@ -29,6 +42,35 @@ absence of external runtime assets and absence of compatibility transport in
 the production napplet before refreshing the Go-embedded files. Commit those
 files together with frontend source changes. Direct Go builds use the checked-in
 artifacts; `just build`, `just deck` and CI rebuild them first.
+
+## Native development launch
+
+```sh
+nix develop
+npm ci
+just store                 # rebuild frontend + Go, then open the actual napplet
+just store --debug         # also enable the native webview inspector
+just build-store           # frontend artifacts only; does not open a window
+```
+
+Run from a graphical desktop session with a compatible running Kwakore daemon
+and installed window runtime. `just store` uses the same trusted built-in path
+as the installed application, including runtime-owned gamepad snapshots. Closing
+the window ends the store broker. Missing native support is an error, not an
+automatic fallback to a different controller/transport implementation.
+
+If launch reports `Method not found (-32601)` for built-in registration, the
+running daemon is too old: update Kwakore to a version with trusted built-in
+support and restart its daemon. `STEAMDUCK_KWAKORE_DIR` can point to a compatible
+local runtime bundle (`kwakore`, `kwaklet`, `libwebview.so`), but changing the
+window bundle alone does not update the running daemon. `steamduck doctor`
+helps diagnose runtime, service and display dependencies.
+
+For explicit compatibility testing, use `just store --legacy-window` or the
+loopback browser server `just dev-store`. Neither substitutes for production
+NAP-GAMEPAD integration testing. With a controller attached, verify directional
+focus movement, A activation, B back/modal dismissal, L1/R1 tab cycling, and
+that focus loss pauses input and requires held buttons to be released on return.
 
 The unsigned sidecar is build metadata. This bundled administrative store does
 not gain trust by publishing or signing a manifest. Do not deploy it as an

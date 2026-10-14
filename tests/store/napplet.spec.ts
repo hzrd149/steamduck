@@ -46,6 +46,63 @@ test("the store supplies secure UUIDs when WebKit lacks randomUUID", async ({ pa
   expect(errors).toEqual([]);
 });
 
+test("Svelte catalog cards preserve focus when returning from the detail screen", async ({ page }) => {
+  const { frame, errors } = await openStore(page);
+  const card = frame.locator("#library-grid .card");
+  await card.click();
+  await expect(frame.locator("#napplet")).toBeVisible();
+  await expect(frame.locator("#library")).toBeHidden();
+  await expect(frame.locator("#d-name")).toHaveText("Demo game");
+  await frame.locator("#d-back").click();
+  await expect(frame.locator("#napplet")).toBeHidden();
+  await expect(card).toBeVisible();
+  await expect(card).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+test("a late discovery response cannot overwrite a newer search", async ({ page }) => {
+  const { frame, errors } = await openStore(page);
+  await frame.locator("body").evaluate(() => {
+    const w = window as any;
+    const call = w.napplet.steamduck.call;
+    w.napplet.steamduck.call = async (method: string, params: any) => {
+      if (method !== "discover") return call(method, params);
+      if (params.query === "old") return new Promise(resolve => { w.releaseOldSearch = resolve; });
+      return { items: params.query === "new" ? [{ address: "new", name: "New result" }] : [], next_offset: null, fetched_at: 1 };
+    };
+  });
+  await frame.getByRole("tab", { name: "Discover", exact: true }).click();
+  await frame.locator("#search").fill("old");
+  await expect.poll(() => frame.locator("body").evaluate(() => typeof (window as any).releaseOldSearch)).toBe("function");
+  await frame.locator("#search").fill("new");
+  await expect(frame.locator("#discover-grid .card .name")).toHaveText("New result");
+  await frame.locator("body").evaluate(() => (window as any).releaseOldSearch({
+    items: [{ address: "old", name: "Old result" }], next_offset: null, fetched_at: 1,
+  }));
+  await expect(frame.locator("#discover-grid .card .name")).toHaveText("New result");
+  expect(errors).toEqual([]);
+});
+
+test("keyed catalog refresh keeps the focused card mounted", async ({ page }) => {
+  const { frame, errors } = await openStore(page);
+  await frame.locator("body").evaluate(() => {
+    const w = window as any;
+    const call = w.napplet.steamduck.call;
+    w.napplet.steamduck.call = async (method: string, params: any) => method === "discover"
+      ? { items: [{ address: "demo", name: "Demo result" }], next_offset: null, fetched_at: 1 }
+      : call(method, params);
+  });
+  await frame.getByRole("tab", { name: "Discover", exact: true }).click();
+  const card = frame.locator("#discover-grid .card");
+  await expect(card).toBeVisible();
+  await card.evaluate(el => { (window as any).originalCard = el; (el as HTMLElement).focus(); });
+  await frame.locator("#refresh").evaluate(el => (el as HTMLElement).click());
+  await expect(frame.locator("#toast")).toHaveText("Catalog refreshed");
+  await expect(card).toBeFocused();
+  expect(await card.evaluate(el => el === (window as any).originalCard)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 async function openStore(page: Page, options: { missingUUID?: boolean; missing?: boolean; version?: number; legacy?: boolean; identity?: boolean; icons?: boolean; paginated?: boolean; denyImages?: boolean } = {}) {
   const errors: string[] = [];
   const requests: string[] = [];

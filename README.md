@@ -72,6 +72,7 @@ environment on x86_64/aarch64 Linux or Apple Silicon macOS:
 nix develop
 npm ci
 just build
+just store              # rebuild and open the native store
 just test
 ```
 
@@ -83,10 +84,14 @@ The first shell entry and `npm ci` need network access to fetch dependencies.
 You can also run commands directly, for example `nix develop -c just deck`
 to cross-build the Linux amd64 binary for a Steam Deck.
 
-The shell disables cgo, matching the release build. Running the native store
-window still requires a separately installed Kwakore runtime and its
-`libwebview.so`; browser development uses `just dev-store` with a running
-Kwakore daemon. Browser tests additionally need Playwright's Chromium and its
+The shell disables cgo, matching the release build. `just store` rebuilds the
+frontend and Go binary, then opens the trusted store napplet. Use
+`just store --debug` to enable the webview inspector, or `just build-store` to
+only compile frontend artifacts. Native launch requires a separately installed,
+compatible Kwakore daemon and runtime (including `kwaklet` and `libwebview.so`).
+It does not silently fall back to compatibility mode when the daemon is too old.
+Browser development uses `just dev-store` with a running Kwakore daemon.
+Browser tests additionally need Playwright's Chromium and its
 host libraries; see [the store build guide](docs/store-napplet.md#verification).
 
 To intentionally update the pinned tools, run `nix flake update` and commit
@@ -106,9 +111,9 @@ go build -o steamduck ./cmd/steamduck
 
 The store window uses the `libwebview.so` from the kwakore release, through purego, so building needs no cgo.
 
-The store frontend uses Vite and `@napplet/vite-plugin` to build a single HTML
-napplet. `dist/store/index.html` uses NAP-STEAMDUCK, optional NAP-GAMEPAD and
-NAP-THEME; it awaits Kwakore's trusted built-in/custom-domain integration. The
-current store window and browser development server use a separate compatibility
-build. See [the store build guide](docs/store-napplet.md) for artifacts, live
+The store frontend uses Svelte 5, Vite and `@napplet/vite-plugin` to build a
+single HTML napplet. The default store window uses the trusted built-in runtime
+path with NAP-STEAMDUCK, optional NAP-GAMEPAD and NAP-THEME. The explicit legacy
+window and browser development server use a separate compatibility build.
+See [the store build guide](docs/store-napplet.md) for artifacts, live
 development and sandbox tests.

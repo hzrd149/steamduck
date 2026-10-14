@@ -7,40 +7,9 @@
 <meta name="description" content="Discover, install and play napplets on Steam Deck with your Nostr account.">
 </head>
 <body>
-<header>
-  <div class="brand"><img class="logo" src="logo.png" alt="" aria-hidden="true">Steamduck Store</div>
-  <nav class="tabs" role="tablist">
-    <span class="hint" aria-hidden="true">L1</span>
-    <button class="tab" data-tab="library" role="tab">Library</button>
-    <button class="tab" data-tab="discover" role="tab">Discover</button>
-    <button class="tab" data-tab="account" role="tab">Account</button>
-    <button class="tab" data-tab="settings" role="tab">Settings</button>
-    <span class="hint" aria-hidden="true">R1</span>
-  </nav>
-  <div class="status" id="status" title="kwakore service"><span class="dot"></span><span id="status-text">Connecting…</span></div>
-</header>
-
-<main>
-  <p id="runtime-unavailable" class="empty" role="alert" hidden></p>
-  <section id="library" class="view" hidden>
-    <div class="toolbar">
-      <h1>Installed</h1>
-      <button id="sync" class="secondary">Sync Steam shortcuts</button>
-    </div>
-    <div class="grid" id="library-grid"></div>
-    <p class="empty" id="library-empty" hidden>No napplets installed yet. Find some in Discover.</p>
-  </section>
-
-  <section id="discover" class="view" hidden>
-    <div class="toolbar">
-      <input id="search" type="search" placeholder="Search napplets" autocomplete="off" spellcheck="false">
-      <button id="refresh" class="secondary">Refresh from relays</button>
-    </div>
-    <div class="grid" id="discover-grid"></div>
-    <p class="empty" id="discover-empty" hidden>Nothing found. Try refreshing from relays.</p>
-    <button id="more" class="secondary more" hidden>Load more</button>
-  </section>
-
+<div id="app"></div>
+<!-- Temporary feature islands; migrate these screens to Svelte independently. -->
+<template id="legacy-screens">
   <section id="account" class="view" hidden>
     <div id="acct-loading" class="acct-loading muted">Loading your account…</div>
 
@@ -234,8 +203,6 @@
       <p class="empty" id="perm-empty" hidden>No saved answers.</p>
     </div>
   </section>
-</main>
-
 <div id="account-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="m-title">
   <div class="modal-card">
     <h2 id="m-title"></h2>
@@ -243,15 +210,6 @@
   </div>
 </div>
 
-<div id="toast" class="toast" role="status" hidden></div>
-
-<template id="card">
-  <button class="card">
-    <span class="icon" aria-hidden="true"></span>
-    <span class="name"></span>
-    <span class="sub muted"></span>
-    <span class="badge" hidden></span>
-  </button>
 </template>
 
 <script type="module" src="./main.ts"></script>
