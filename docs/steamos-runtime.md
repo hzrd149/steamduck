@@ -1,16 +1,28 @@
-# Kwakore's runtime libraries on SteamOS
+# WebKitGTK on SteamOS
 
-Kwakore's window program (`kwaklet`) and the store window load `libwebview.so`, which links against **WebKitGTK 4.1** (`libwebkit2gtk-4.1.so.0`). Game controllers need **SDL2** (`libSDL2-2.0.so.0`). `steamduck doctor` reports whether each is present.
+Napplet windows (kwakore's `kwaklet`) and the store window load `libwebview.so`, which links against **WebKitGTK 4.1** (`libwebkit2gtk-4.1.so.0`). SteamOS's read-only system partition does not include it, and anything installed there with pacman is lost on the next update.
 
-SteamOS's system partition is read-only and replaced on every update, so anything installed into it with pacman is lost. Whether a given SteamOS release ships WebKitGTK 4.1 is not verified yet. Run `steamduck doctor` on the Deck to find out. SDL2 is expected, because the Steam client uses it.
+## The Flatpak runtime
 
-## If WebKitGTK 4.1 is missing
+When the host has no WebKitGTK 4.1, steamduck runs its WebKit windows inside the **Flatpak GNOME runtime** (`org.gnome.Platform//50`), which ships WebKitGTK 4.1 and its helper processes. `steamduck install` installs it per user from Flathub (`flatpak install --user`). This needs no root and survives SteamOS updates. It takes about 1 GB on disk. `steamduck runtime install` retries a failed install, and `steamduck runtime status` shows what is in use.
 
-These are the options, roughly in order of preference. None is implemented yet. The right choice depends on what `doctor` reports on real hardware.
+Only the window programs run in the sandbox; the kwakore service stays on the host:
 
-1. **systemd-sysext image.** Build an extension image holding `webkit2gtk-4.1` and its dependencies from the matching SteamOS/Arch package versions. Install it to `/var/lib/extensions`, which survives updates. This needs root once and must be rebuilt when the SteamOS version changes, because the image's `extension-release` must match `os-release`.
-2. **Flatpak GNOME runtime.** Run `kwakore` inside `org.gnome.Platform`, which ships WebKitGTK 4.1 and SDL2. It needs no root and survives updates. The catch is that kwakore expects systemd socket activation and checks `LISTEN_PID`, so the units would run the daemon in foreground mode inside `flatpak run`. The socket directory would be shared with `--filesystem=xdg-run/kwakore:create`, and windows would need `--socket=x11 --device=all`.
-3. **Distrobox/podman container.** SteamOS 3.5+ includes podman and distrobox. Run the daemon in an Arch container that shares `$HOME` and `/run/user/$UID`. This has the same foreground-mode caveat as Flatpak, and it is a large download.
-4. **Pacman into the read-only root.** Run `steamos-readonly disable`, then `pacman -S webkit2gtk-4.1`. This works until the next update, and `steamduck doctor` would catch the regression. Use it only for testing.
+- **Napplet windows.** `steamduck launch` makes a kwakore *attached launch* (`napplet.launch` with `attach:true`), puts the returned connection on its stdin and stdout, and execs `flatpak run --command=…/kwaklet org.gnome.Platform//50`. The window speaks to the daemon over that inherited connection, so the sandbox has **no network** (`--unshare=network`). It gets the kwakore release directory read-only, X11, GPU and sound. The process Steam started stays the window's.
+- **The store.** `steamduck store` re-runs itself inside the runtime with access to the kwakore socket. Play starts `kwaklet` as the store's own child inside the same sandbox. "Sync Steam shortcuts" runs `steamduck sync` on the host through `flatpak-spawn --host`, because Steam's processes and files are outside the sandbox.
 
-A private copy of the libraries with `LD_LIBRARY_PATH` alone does not work. WebKitGTK starts its `WebKitWebProcess` and `WebKitNetworkProcess` helpers from a path compiled into the library, and release builds ignore `WEBKIT_EXEC_PATH`.
+WebKit's DMA-BUF renderer leaves windows blank inside the sandbox under X11, so it is turned off (`WEBKIT_DISABLE_DMABUF_RENDERER=1`).
+
+## Choosing
+
+`window_runtime` in `~/.config/steamduck/config.json` is `auto` (the default: the host's WebKitGTK when present, Flatpak otherwise), `host` or `flatpak`. `flatpak_runtime` changes the runtime ref. `STEAMDUCK_WINDOW_RUNTIME=flatpak` forces it for one command, which is how it was tested on a desktop that has WebKitGTK.
+
+## Why not ship WebKitGTK ourselves
+
+Release builds of WebKitGTK find their helper processes (`WebKitWebProcess`, `WebKitNetworkProcess`) only at a directory compiled in, such as `/usr/lib/webkit2gtk-4.1`. `WEBKIT_EXEC_PATH` works only in developer builds (`Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp`). Shipping a copy under `~/.local` would mean building WebKitGTK ourselves for a home-directory prefix against SteamOS's libraries, then shipping its security updates. The Flatpak runtime is maintained by GNOME.
+
+## Still to verify on a Steam Deck
+
+- Game mode: gamescope shows the sandboxed windows (they have no `_NET_WM_PID`, because of the sandbox's process namespace).
+- WebGL performance with DMA-BUF off.
+- Steam overlay, audio and controller input (input comes through the host daemon).

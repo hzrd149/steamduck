@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -116,5 +117,43 @@ func TestSubscribe(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("no event")
+	}
+}
+
+func TestLaunchAttached(t *testing.T) {
+	path := fakeDaemon(t, func(method string, params json.RawMessage, enc *json.Encoder, id json.RawMessage) {
+		var p struct {
+			Address string `json:"address"`
+			Attach  bool   `json:"attach"`
+		}
+		_ = json.Unmarshal(params, &p)
+		if method != "napplet.launch" || !p.Attach {
+			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32602, "message": "Invalid params"}})
+			return
+		}
+		reply(enc, id, map[string]any{"address": p.Address, "outcome": "attached", "window_id": "w1",
+			"window": map[string]any{"napp_id": "n", "name": "Game", "instance_id": "w1", "width": 800, "height": 600, "format": "napplet"}})
+		// the first frame for the window, right behind the reply
+		_ = enc.Encode(map[string]any{"t": "eval", "code": "1"})
+	})
+	c, _ := New(path)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	w, conn, err := c.LaunchAttached(ctx, "35129:aa:game", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if w.Instance != "w1" || w.Width != 800 {
+		t.Fatalf("window = %+v", w)
+	}
+	// the window's frame must still be on the connection for the window program
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	line, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil || !strings.Contains(line, `"eval"`) {
+		t.Fatalf("window frame = %q, %v", line, err)
+	}
+	if _, _, err := c.LaunchAttached(ctx, "35129:aa:game", true); !IsCode(err, -32602) {
+		t.Fatalf("try on a daemon without attach: %v", err)
 	}
 }

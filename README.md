@@ -58,7 +58,7 @@ Configuration lives in `~/.config/steamduck/config.json`:
 ## Known limitations
 
 - **Steam must restart to see new shortcuts.** Steam keeps shortcuts in memory and writes them back itself, so steamduck defers writing while Steam runs. It writes as soon as Steam exits, for example when you switch between game and desktop mode. `--force` writes anyway, but Steam will not show the change and may overwrite it. A Decky Loader plugin can add shortcuts live through Steam's client API; see `docs/design.md`.
-- **WebKitGTK 4.1** must be available to the kwakore window program. See [docs/steamos-runtime.md](docs/steamos-runtime.md).
+- **WebKitGTK 4.1:** SteamOS lacks it, so napplet windows and the store run in the Flatpak GNOME runtime, which `steamduck install` sets up per user (about 1 GB, no root). Gamescope and performance under it are still to be confirmed on a Deck. See [docs/steamos-runtime.md](docs/steamos-runtime.md).
 - Tested here on an Ubuntu X11 desktop against a real kwakore daemon: sync, store and launch. It has not yet been run on a Steam Deck, under gamescope.
 
 ## Development

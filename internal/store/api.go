@@ -31,6 +31,9 @@ type API struct {
 	Quit func()
 	// Stderr receives the output of napplet windows the store starts.
 	Stderr *os.File
+	// StartWindow, when set, opens napplet windows instead of the default
+	// launch paths (the store's Flatpak sandbox sets it).
+	StartWindow func(ctx context.Context, address string, try bool) error
 
 	iconMu sync.Mutex
 	icons  map[string]string // address -> data URL ("" when none)
@@ -98,6 +101,14 @@ func (a *API) Call(ctx context.Context, method string, raw json.RawMessage) (any
 }
 
 func (a *API) launch(ctx context.Context, try bool, address string) (any, error) {
+	if a.StartWindow != nil {
+		ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		defer cancel()
+		if err := a.StartWindow(ctx, address, try); err != nil {
+			return nil, err
+		}
+		return &kwakrpc.LaunchResult{Address: address, Outcome: "opened"}, nil
+	}
 	// Preferred: run the window as our own child (kwakore attached launch),
 	// so it stays in the store's Steam session.
 	if !try && launcher.SupportsRun() {

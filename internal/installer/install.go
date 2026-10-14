@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hzrd149/steamduck/internal/flatpak"
 	"github.com/hzrd149/steamduck/internal/paths"
 )
 
@@ -49,8 +50,9 @@ func Install(ctx context.Context, opts Options) error {
 	if os.Geteuid() == 0 {
 		return errors.New("run steamduck install as the deck user, not root")
 	}
-	if FindLib(LibWebKit) == "" {
-		log.Warn("WebKitGTK 4.1 was not found; kwakore installs but napplet windows will not open until it is available (see docs/steamos-runtime.md)")
+	cfg, err := paths.LoadConfig()
+	if err != nil {
+		return err
 	}
 
 	if !opts.SkipKwakore {
@@ -79,6 +81,19 @@ func Install(ctx context.Context, opts Options) error {
 	_ = systemctl(ctx, "try-restart", "kwakore.service")
 	if err := systemctl(ctx, "enable", "--now", "steamduck-sync.service"); err != nil {
 		return err
+	}
+
+	// Without WebKitGTK 4.1 on the host (SteamOS), napplet windows and the
+	// store run in a Flatpak runtime. It is a large download, so it comes
+	// last; a failure leaves everything else installed and says how to
+	// retry.
+	if flatpak.Use(cfg) {
+		log.Info("no WebKitGTK 4.1 on this system; installing the Flatpak runtime that napplet windows and the store run in (about 1 GB on disk)",
+			"runtime", cfg.FlatpakRuntime)
+		if err := flatpak.Install(ctx, cfg.FlatpakRuntime, os.Stderr); err != nil {
+			log.Error("could not install the Flatpak runtime; napplets will not open until it is installed. Retry with: steamduck runtime install",
+				"err", err)
+		}
 	}
 	return nil
 }

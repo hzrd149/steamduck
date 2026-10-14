@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/hzrd149/steamduck/internal/flatpak"
 	"github.com/hzrd149/steamduck/internal/hostlib"
 	"github.com/hzrd149/steamduck/internal/paths"
 )
@@ -67,11 +68,27 @@ func Doctor(ctx context.Context) []Check {
 		add(Check{Name: "systemd user manager", OK: true, Detail: strings.TrimSpace(string(out))})
 	}
 
+	// WebKit windows (napplets and the store) run on the host's WebKitGTK
+	// 4.1, or in a Flatpak runtime that ships it.
+	cfg, cfgErr := paths.LoadConfig()
 	webkit := FindLib(LibWebKit)
-	c := Check{Name: "WebKitGTK 4.1", OK: webkit != "", Detail: webkit}
-	if webkit == "" {
-		c.Detail = LibWebKit + " not found"
-		c.Fix = "SteamOS does not ship it in this release; see docs/steamos-runtime.md"
+	var c Check
+	switch {
+	case cfgErr != nil:
+		c = Check{Name: "window runtime", Detail: "config: " + cfgErr.Error()}
+	case !flatpak.Use(cfg):
+		c = Check{Name: "window runtime", OK: webkit != "", Detail: "host WebKitGTK 4.1 " + webkit}
+		if webkit == "" {
+			c.Detail = "window_runtime is host, but " + LibWebKit + " was not found"
+			c.Fix = `set "window_runtime" to "auto" in ~/.config/steamduck/config.json`
+		}
+	case !flatpak.Available():
+		c = Check{Name: "window runtime", Detail: "no WebKitGTK 4.1 on the host and flatpak is not installed"}
+	case !flatpak.Installed(ctx, cfg.FlatpakRuntime):
+		c = Check{Name: "window runtime", Detail: "Flatpak runtime " + cfg.FlatpakRuntime + " is not installed",
+			Fix: "steamduck runtime install"}
+	default:
+		c = Check{Name: "window runtime", OK: true, Detail: "Flatpak " + cfg.FlatpakRuntime}
 	}
 	add(c)
 
