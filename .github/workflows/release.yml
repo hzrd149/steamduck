@@ -52,24 +52,49 @@ jobs:
         # the bare container's default is sh
         shell: bash
     steps:
-      - name: build dependencies
+      # Just enough for the action steps below: checkout needs git, and the
+      # cache actions (actions/cache and setup-go's built-in Go cache) need
+      # tar+zstd to pack archives -- without zstd they silently no-op in this
+      # bare container. The heavy build deps are only installed on a miss.
+      - name: bootstrap actions tooling
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            ca-certificates curl git gcc libc6-dev pkg-config util-linux \
+            ca-certificates curl git tar zstd
+      # KWAKORE_REF pins both the sources and the bundle script that builds
+      # them, so the bundle is identical until the pin moves. Cache the
+      # finished bundle and skip the whole gtk/webkit build on every push
+      # that keeps the same pin. No restore-keys on purpose: a prefix match
+      # would restore a bundle built from a different ref. If GitHub evicts
+      # the cache after 7 idle days, the job simply builds it again.
+      - name: restore kwakore bundle
+        id: bundle
+        uses: actions/cache@v6
+        with:
+          path: upload
+          key: kwakore-bundle-amd64-${{ env.KWAKORE_REF }}
+      - name: build dependencies
+        if: steps.bundle.outputs.cache-hit != 'true'
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            gcc libc6-dev pkg-config util-linux \
             libgtk-3-dev libwebkit2gtk-4.1-dev
       - uses: actions/checkout@v7
+        if: steps.bundle.outputs.cache-hit != 'true'
         with:
           repository: ${{ env.KWAKORE_REPO }}
           ref: ${{ env.KWAKORE_REF }}
           path: kwakore
       - uses: actions/setup-go@v7
+        if: steps.bundle.outputs.cache-hit != 'true'
         with:
           go-version-file: kwakore/backend/go.mod
           cache-dependency-path: |
             kwakore/backend/go.sum
             kwakore/desktop/go.sum
       - name: build bundle
+        if: steps.bundle.outputs.cache-hit != 'true'
         run: |
           git config --global --add safe.directory '*'
           version="0.0.0-${KWAKORE_REF:0:12}"
@@ -78,7 +103,7 @@ jobs:
           cp "kwakore-dist/$version/kwakore-linux-amd64.tar.gz" upload/
           cp kwakore/scripts/install.sh upload/kwakore-install.sh
           ldd "kwakore-dist/$version/kwakore-$version-linux-amd64/kwaklet" || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: kwakore
           path: upload/*
@@ -104,7 +129,7 @@ jobs:
             -ldflags "-s -w -X main.version=$version" \
             -o upload/steamduck-linux-amd64 ./cmd/steamduck
           cp install.sh upload/install.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: steamduck
           path: upload/*
@@ -117,7 +142,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: assets
           merge-multiple: true
